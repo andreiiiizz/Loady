@@ -114,36 +114,68 @@ export function calculateForecast(sim: SimCard): ForecastResult {
   };
 }
 
+export interface AutoDecayOptions {
+  isWifiActive?: boolean;
+  forceSimulateHours?: number;
+  measuredSpeedMbps?: number;
+}
+
+export interface AutoDecayResult {
+  updatedSim: SimCard;
+  deductedMb: number;
+  reason?: 'wifi_paused' | 'cellular_decay' | 'disabled' | 'depleted' | 'insufficient_time';
+}
+
 /**
- * Automatically calculates elapsed time since last sync and deducts simulated usage based on profile.
- * Enables zero-effort automatic tracking without mandatory manual entries!
+ * Automatically calculates elapsed time since last sync and deducts usage.
+ * If connected to Wi-Fi, balance deduction is completely PAUSED (0 MB deducted).
  */
-export function applyAutoDecay(sim: SimCard): { updatedSim: SimCard; deductedMb: number } {
+export function applyAutoDecay(sim: SimCard, options?: AutoDecayOptions): AutoDecayResult {
   if (!sim.autoTrackingEnabled || sim.remainingDataMb <= 0) {
-    return { updatedSim: sim, deductedMb: 0 };
+    return { updatedSim: sim, deductedMb: 0, reason: sim.remainingDataMb <= 0 ? 'depleted' : 'disabled' };
   }
 
   const now = new Date();
-  const lastSync = new Date(sim.lastSyncAt || sim.registeredAt || now.toISOString());
-  const elapsedMinutes = (now.getTime() - lastSync.getTime()) / (1000 * 60);
 
-  // Only apply decay if at least 2 minutes have passed
-  if (elapsedMinutes < 2) {
-    return { updatedSim: sim, deductedMb: 0 };
+  // If Wi-Fi is active and not explicitly doing a forced demo simulation, PAUSE decay completely!
+  if (options?.isWifiActive && !options?.forceSimulateHours) {
+    return {
+      updatedSim: {
+        ...sim,
+        lastSyncAt: now.toISOString()
+      },
+      deductedMb: 0,
+      reason: 'wifi_paused'
+    };
   }
 
-  const hourlyRate = PROFILE_BASELINE_MB_HR[sim.usageProfile || 'moderate'];
+  const lastSync = new Date(sim.lastSyncAt || sim.registeredAt || now.toISOString());
+  let elapsedMinutes = (now.getTime() - lastSync.getTime()) / (1000 * 60);
+
+  if (options?.forceSimulateHours) {
+    elapsedMinutes = options.forceSimulateHours * 60;
+  }
+
+  // Only apply decay if at least 1 minute has passed (or forced)
+  if (elapsedMinutes < 1 && !options?.forceSimulateHours) {
+    return { updatedSim: sim, deductedMb: 0, reason: 'insufficient_time' };
+  }
+
+  const baselineRate = PROFILE_BASELINE_MB_HR[sim.usageProfile || 'moderate'];
   const elapsedHours = Math.min(elapsedMinutes / 60, 48); // Cap at 48 hours for long absences
   
   // Apply a natural daytime/nighttime curve factor (lower usage between 1AM - 6AM)
   const currentHour = now.getHours();
   const timeFactor = (currentHour >= 1 && currentHour <= 6) ? 0.25 : 1.0;
   
-  const estimatedUsageMb = Math.round(hourlyRate * elapsedHours * timeFactor * 10) / 10;
+  // Dynamic cellular throughput adjustment if available
+  const speedMultiplier = options?.measuredSpeedMbps && options.measuredSpeedMbps > 25 ? 1.15 : 1.0;
+  
+  const estimatedUsageMb = Math.round(baselineRate * elapsedHours * timeFactor * speedMultiplier * 10) / 10;
   const actualDeducted = Math.min(sim.remainingDataMb, estimatedUsageMb);
 
-  if (actualDeducted <= 0.1) {
-    return { updatedSim: { ...sim, lastSyncAt: now.toISOString() }, deductedMb: 0 };
+  if (actualDeducted <= 0.05) {
+    return { updatedSim: { ...sim, lastSyncAt: now.toISOString() }, deductedMb: 0, reason: 'insufficient_time' };
   }
 
   const newRemaining = Math.max(0, Math.round((sim.remainingDataMb - actualDeducted) * 10) / 10);
@@ -152,7 +184,9 @@ export function applyAutoDecay(sim: SimCard): { updatedSim: SimCard; deductedMb:
     timestamp: now.toISOString(),
     usedMb: actualDeducted,
     source: 'auto_decay' as const,
-    description: `Auto-tracked (${Math.round(elapsedMinutes)} mins ${sim.usageProfile} usage)`
+    description: options?.forceSimulateHours 
+      ? `Demo Simulation: 1 hr ${sim.usageProfile} cellular usage`
+      : `Cellular Auto-tracked: ${Math.round(elapsedMinutes)}m on Mobile Data`
   };
 
   const updatedSim: SimCard = {
@@ -162,7 +196,7 @@ export function applyAutoDecay(sim: SimCard): { updatedSim: SimCard; deductedMb:
     usageHistory: [...(sim.usageHistory || []), newRecord].slice(-50)
   };
 
-  return { updatedSim, deductedMb: actualDeducted };
+  return { updatedSim, deductedMb: actualDeducted, reason: 'cellular_decay' };
 }
 
 /**

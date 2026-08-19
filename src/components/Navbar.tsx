@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SimCard } from '../types';
-import { Zap, ChevronDown, Plus, Moon, Sun, Settings, Radio } from 'lucide-react';
+import { Zap, ChevronDown, Plus, Moon, Sun, Settings, Radio, Wifi } from 'lucide-react';
+import { getLiveNetworkStatus } from '../services/networkMonitor';
 
 interface NavbarProps {
   sims: SimCard[];
@@ -22,6 +23,21 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleTheme
 }) => {
   const [isSimDropdownOpen, setIsSimDropdownOpen] = useState(false);
+  const [netStatus, setNetStatus] = useState(getLiveNetworkStatus());
+
+  useEffect(() => {
+    const update = () => setNetStatus(getLiveNetworkStatus());
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    const interval = setInterval(update, 10000);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+      clearInterval(interval);
+    };
+  }, []);
+
+  const isWifi = netStatus.wifiShieldActive || netStatus.isWifi;
 
   return (
     <header
@@ -182,22 +198,22 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
         {/* Network Status Badge */}
         <div style={{
-          display: 'none',
+          display: 'flex',
           alignItems: 'center',
           gap: '0.3rem',
-          padding: '0.2rem 0.5rem',
+          padding: '0.2rem 0.55rem',
           borderRadius: 'var(--radius-full)',
-          background: 'rgba(74, 222, 128, 0.12)',
-          border: '1px solid rgba(74, 222, 128, 0.3)',
-          color: 'var(--neon-lime)',
-          fontSize: '0.7rem',
+          background: isWifi ? 'rgba(74, 222, 128, 0.15)' : 'rgba(168, 85, 247, 0.15)',
+          border: isWifi ? '1px solid rgba(74, 222, 128, 0.35)' : '1px solid rgba(168, 85, 247, 0.35)',
+          color: isWifi ? 'var(--neon-lime)' : 'var(--primary)',
+          fontSize: '0.68rem',
           fontWeight: 700,
           fontFamily: 'var(--font-mono)'
         }}
-        className="hide-xs"
+        title={isWifi ? "Connected to Wi-Fi: Data Decay is Paused" : "Connected to Mobile Data: Live Tracking"}
         >
-          <Radio size={11} className="animate-pulse" />
-          <span>PH 5G</span>
+          {isWifi ? <Wifi size={12} /> : <Radio size={12} className="animate-pulse" />}
+          <span>{isWifi ? 'Wi-Fi' : 'Cellular'}</span>
         </div>
 
         {/* Theme Toggle */}

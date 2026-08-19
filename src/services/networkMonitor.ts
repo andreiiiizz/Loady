@@ -1,39 +1,127 @@
 /**
  * Real-Time Network Connection & Data Telemetry Monitor
- * Reads navigator.connection API (Network Information API) supported on Android Chrome / Chromium PWA
+ * Reads Network Information API (navigator.connection) supported on Chromium / Android PWA
+ * and provides smart Wi-Fi shield persistence for iOS & universal devices.
  */
 
 export interface NetworkStatus {
   effectiveType: '4g' | '3g' | '2g' | 'slow-2g' | 'unknown';
+  connectionType: 'wifi' | 'cellular' | 'ethernet' | 'none' | 'unknown';
   downlinkMbps: number;
   rttMs: number;
   saveData: boolean;
   isOnline: boolean;
+  isWifi: boolean;
+  isCellular: boolean;
+  wifiShieldActive: boolean; // Manual or auto Wi-Fi zero-decay protection
 }
 
+const WIFI_SHIELD_STORAGE_KEY = 'loady_wifi_shield_active';
+
+export function loadWifiShield(): boolean {
+  try {
+    const saved = localStorage.getItem(WIFI_SHIELD_STORAGE_KEY);
+    if (saved !== null) {
+      return saved === 'true';
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+export function saveWifiShield(active: boolean): void {
+  try {
+    localStorage.setItem(WIFI_SHIELD_STORAGE_KEY, String(active));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Calculates current network status and detects if Wi-Fi is active
+ */
 export function getLiveNetworkStatus(): NetworkStatus {
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  const wifiShieldActive = loadWifiShield();
 
   // @ts-expect-error - navigator.connection is experimental Network Information API
   const conn = typeof navigator !== 'undefined' ? (navigator.connection || navigator.mozConnection || navigator.webkitConnection) : null;
 
+  let connectionType: NetworkStatus['connectionType'] = 'unknown';
+  let isWifiDetected = false;
+  let isCellularDetected = false;
+
   if (conn) {
+    const rawType = (conn.type || '').toLowerCase();
+    if (rawType === 'wifi' || rawType === 'wimax') {
+      connectionType = 'wifi';
+      isWifiDetected = true;
+    } else if (rawType === 'cellular') {
+      connectionType = 'cellular';
+      isCellularDetected = true;
+    } else if (rawType === 'ethernet') {
+      connectionType = 'ethernet';
+      isWifiDetected = true; // Ethernet is unmetered home/broadband
+    } else if (rawType === 'none') {
+      connectionType = 'none';
+    } else {
+      // If connection type is not explicitly exposed (common on some Chromium builds)
+      connectionType = 'unknown';
+    }
+
+    const effectiveType = conn.effectiveType || '4g';
+    const downlinkMbps = typeof conn.downlink === 'number' ? conn.downlink : 12.5;
+    const rttMs = typeof conn.rtt === 'number' ? conn.rtt : 45;
+    const saveData = Boolean(conn.saveData);
+
+    const isWifi = wifiShieldActive || isWifiDetected;
+    const isCellular = !isWifi && (isCellularDetected || (isOnline && connectionType !== 'none'));
+
     return {
-      effectiveType: conn.effectiveType || '4g',
-      downlinkMbps: conn.downlink || 12.5,
-      rttMs: conn.rtt || 45,
-      saveData: Boolean(conn.saveData),
-      isOnline
+      effectiveType,
+      connectionType,
+      downlinkMbps,
+      rttMs,
+      saveData,
+      isOnline,
+      isWifi,
+      isCellular,
+      wifiShieldActive
     };
   }
 
+  // Fallback for browsers without navigator.connection (e.g. iOS Safari)
+  const isWifi = wifiShieldActive;
+  const isCellular = !isWifi && isOnline;
+
   return {
     effectiveType: '4g',
+    connectionType: 'unknown',
     downlinkMbps: 15.0,
     rttMs: 38,
     saveData: false,
-    isOnline
+    isOnline,
+    isWifi,
+    isCellular,
+    wifiShieldActive
   };
+}
+
+/**
+ * Get active session data transferred in the app (KB/MB) via Resource Timing API
+ */
+export function getSessionDataTransferredMb(): number {
+  if (typeof performance === 'undefined' || !performance.getEntriesByType) {
+    return 0;
+  }
+  try {
+    const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+    const totalBytes = resources.reduce((acc, r) => acc + (r.transferSize || r.decodedBodySize || 0), 0);
+    return Math.round((totalBytes / (1024 * 1024)) * 100) / 100;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -47,3 +135,4 @@ export const TELCO_USSD_CODES: Record<string, { balanceCheck: string; promoMenu:
   TNT: { balanceCheck: '*123#', promoMenu: '*123#', label: 'Dial *123#' },
   GOMO: { balanceCheck: 'App Only', promoMenu: 'GOMO App', label: 'Open GOMO App' }
 };
+

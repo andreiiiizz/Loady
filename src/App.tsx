@@ -15,6 +15,7 @@ import {
   clearAuthUser
 } from './services/storage';
 import { applyAutoDecay, calculateForecast } from './services/burnRateEngine';
+import { getLiveNetworkStatus } from './services/networkMonitor';
 
 // Critical Instant Components (First Contentful Paint)
 import { PhoneAuthView } from './components/PhoneAuthView';
@@ -93,10 +94,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!authUser) return;
     const timer = setInterval(() => {
+      const liveNet = getLiveNetworkStatus();
+      const isWifi = liveNet.wifiShieldActive || liveNet.isWifi;
+
       setSims(prevSims => {
         const updated = prevSims.map(sim => {
           if (!sim.autoTrackingEnabled) return sim;
-          const { updatedSim } = applyAutoDecay(sim);
+          const { updatedSim } = applyAutoDecay(sim, {
+            isWifiActive: isWifi,
+            measuredSpeedMbps: liveNet.downlinkMbps
+          });
           return updatedSim;
         });
         saveSims(updated);
