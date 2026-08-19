@@ -16,6 +16,7 @@ import {
 } from './services/storage';
 import { applyAutoDecay, calculateForecast } from './services/burnRateEngine';
 import { getLiveNetworkStatus } from './services/networkMonitor';
+import { fetchCoverageReports, subscribeToCrowdReports, upvoteCoverageReport as supabaseUpvote } from './services/supabase';
 
 // Critical Instant Components (First Contentful Paint)
 import { PhoneAuthView } from './components/PhoneAuthView';
@@ -89,6 +90,31 @@ export const App: React.FC = () => {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // Initial fetch and realtime subscription for Supabase crowd-sourced coverage reports
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchCoverageReports().then(reports => {
+      if (isMounted && reports && reports.length > 0) {
+        setCoverageReports(reports);
+      }
+    });
+
+    const unsubscribe = subscribeToCrowdReports((newReport) => {
+      if (isMounted) {
+        setCoverageReports(prev => {
+          if (prev.some(r => r.id === newReport.id)) return prev;
+          return [newReport, ...prev];
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   // Periodic real-time background decay calculation (every 30 seconds)
   useEffect(() => {
@@ -200,6 +226,7 @@ export const App: React.FC = () => {
 
   // Upvote Coverage Report
   const handleUpvoteReport = (reportId: string) => {
+    supabaseUpvote(reportId);
     const updated = coverageReports.map(r => {
       if (r.id === reportId) {
         return { ...r, upvotes: r.upvotes + 1 };
@@ -209,6 +236,16 @@ export const App: React.FC = () => {
     setCoverageReports(updated);
     saveCoverageReports(updated);
   };
+
+  // If incoming Web Share Target is detected, ensure active tab is Dashboard
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('share-target') || params.get('text')) {
+        setCurrentTab('dashboard');
+      }
+    }
+  }, []);
 
   // If not authenticated, show Phone Auth Screen
   if (!authUser) {

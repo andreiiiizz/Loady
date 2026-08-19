@@ -16,7 +16,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}']
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        importScripts: ['/sw-push.js']
       },
       manifest: {
         name: 'Loady - Philippine Prepaid Companion',
@@ -25,7 +26,15 @@ export default defineConfig({
         theme_color: '#10131c',
         background_color: '#10131c',
         display: 'standalone',
-        orientation: 'portrait'
+        orientation: 'portrait',
+        share_target: {
+          action: '/?share-target=true',
+          method: 'GET',
+          params: {
+            title: 'title',
+            text: 'text'
+          }
+        }
       }
     })
   ],

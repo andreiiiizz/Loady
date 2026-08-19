@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { SimCard, UsageProfile, TelcoProvider, AuthUser } from '../types';
+import { SimCard, TelcoProvider, AuthUser } from '../types';
 import { UserStats } from '../services/storage';
-import { Sliders, Plus, Trash2, Download, Check, LogOut, UserCheck } from 'lucide-react';
+import { Sliders, Plus, Trash2, Download, LogOut, UserCheck, Sun, Moon } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -9,7 +9,7 @@ interface SettingsModalProps {
   sims: SimCard[];
   activeSim: SimCard;
   onSelectSim?: (simId: string) => void;
-  onUpdateSim: (updatedSim: SimCard) => void;
+  onUpdateSim?: (updatedSim: SimCard) => void;
   onAddSim: (newSim: SimCard) => void;
   onDeleteSim: (simId: string) => void;
   userStats: UserStats;
@@ -25,7 +25,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   sims,
   activeSim,
   onSelectSim,
-  onUpdateSim,
   onAddSim,
   onDeleteSim,
   userStats,
@@ -34,17 +33,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   authUser,
   onLogout
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'sims' | 'badges' | 'account'>('profile');
+  const [activeTab, setActiveTab] = useState<'sims' | 'badges' | 'account'>('sims');
   const [newSimName, setNewSimName] = useState('');
   const [newSimTelco, setNewSimTelco] = useState<TelcoProvider>('Smart');
   const [newSimGb, setNewSimGb] = useState('8.0');
   const [showAddForm, setShowAddForm] = useState(false);
 
   if (!isOpen) return null;
-
-  const handleProfileChange = (profile: UsageProfile) => {
-    onUpdateSim({ ...activeSim, usageProfile: profile });
-  };
 
   const handleCreateSim = (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +72,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `loadwise_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `loady_backup_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
   };
 
@@ -89,7 +84,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <Sliders size={20} color="var(--primary)" />
             <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: '1.15rem', fontWeight: 800, color: '#ffffff' }}>
-              Settings & Account
+              Settings & Manage
             </h3>
           </div>
           <button
@@ -103,29 +98,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Tab Switcher */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(3, 1fr)',
           background: 'var(--surface-container-high)',
           padding: '0.3rem',
           borderRadius: 'var(--radius-lg)',
           marginBottom: '1.25rem',
           gap: '0.2rem'
         }}>
-          <button
-            onClick={() => setActiveTab('profile')}
-            style={{
-              background: activeTab === 'profile' ? 'var(--primary-container)' : 'transparent',
-              border: 'none',
-              borderRadius: 'var(--radius-md)',
-              padding: '0.45rem 0.2rem',
-              color: activeTab === 'profile' ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
-              fontWeight: 700,
-              fontSize: '0.72rem',
-              cursor: 'pointer',
-              boxShadow: activeTab === 'profile' ? 'var(--glow-active)' : 'none'
-            }}
-          >
-            Profile
-          </button>
           <button
             onClick={() => setActiveTab('sims')}
             style={{
@@ -135,12 +114,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               padding: '0.45rem 0.2rem',
               color: activeTab === 'sims' ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
               fontWeight: 700,
-              fontSize: '0.72rem',
+              fontSize: '0.75rem',
               cursor: 'pointer',
               boxShadow: activeTab === 'sims' ? 'var(--glow-active)' : 'none'
             }}
           >
-            SIMs ({sims.length})
+            SIM Cards ({sims.length})
           </button>
           <button
             onClick={() => setActiveTab('badges')}
@@ -151,7 +130,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               padding: '0.45rem 0.2rem',
               color: activeTab === 'badges' ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
               fontWeight: 700,
-              fontSize: '0.72rem',
+              fontSize: '0.75rem',
               cursor: 'pointer',
               boxShadow: activeTab === 'badges' ? 'var(--glow-active)' : 'none'
             }}
@@ -167,86 +146,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               padding: '0.45rem 0.2rem',
               color: activeTab === 'account' ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
               fontWeight: 700,
-              fontSize: '0.72rem',
+              fontSize: '0.75rem',
               cursor: 'pointer',
               boxShadow: activeTab === 'account' ? 'var(--glow-active)' : 'none'
             }}
           >
-            Auth
+            Account & App
           </button>
         </div>
 
-        {/* TAB 1: USAGE PROFILE */}
-        {activeTab === 'profile' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            <p style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)' }}>
-              Choose your typical daily habits. The burn-rate engine uses this to automatically calculate usage decay when you are offline:
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-              {[
-                { id: 'light' as UsageProfile, title: 'Light User', rate: '~360 MB / day', desc: 'Chat apps (Messenger, Viber), email, light browsing' },
-                { id: 'moderate' as UsageProfile, title: 'Moderate User', rate: '~1.3 GB / day', desc: 'Social media feeds (TikTok, FB, IG), casual YouTube watching' },
-                { id: 'heavy' as UsageProfile, title: 'Heavy / Gamer', rate: '~3.3 GB / day', desc: 'Mobile Legends (MLBB), Wild Rift, COD Mobile, HD video streams' },
-                { id: 'streamer' as UsageProfile, title: 'Streamer / Hotspot', rate: '~6.7 GB / day', desc: 'Laptop hotspot sharing, 4K streaming, heavy game downloading' }
-              ].map(p => {
-                const isSelected = activeSim.usageProfile === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => handleProfileChange(p.id)}
-                    style={{
-                      background: isSelected ? 'rgba(168, 85, 247, 0.15)' : 'var(--surface-container-low)',
-                      border: isSelected ? '1px solid var(--electric-purple)' : '1px solid var(--glass-border)',
-                      boxShadow: isSelected ? 'var(--glow-active)' : 'none',
-                      borderRadius: 'var(--radius-lg)',
-                      padding: '0.85rem',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                        <span style={{ fontWeight: 700, fontSize: '0.88rem', color: isSelected ? 'var(--primary)' : '#ffffff' }}>
-                          {p.title}
-                        </span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--neon-lime)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                          ({p.rate})
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--on-surface-variant)', marginTop: '0.2rem' }}>
-                        {p.desc}
-                      </div>
-                    </div>
-                    {isSelected && <Check size={18} color="var(--primary)" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div style={{ marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--glass-border)', display: 'flex', gap: '0.65rem' }}>
-              <button
-                onClick={handleExportData}
-                className="btn btn-secondary btn-sm"
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-              >
-                <Download size={14} /> Backup (JSON)
-              </button>
-              <button
-                onClick={onToggleTheme}
-                className="btn btn-secondary btn-sm"
-                style={{ flex: 1 }}
-              >
-                Theme: {theme === 'dark' ? 'Dark Mode' : 'Light Mode'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: MULTI-SIM MANAGER */}
+        {/* TAB 1: MULTI-SIM MANAGER */}
         {activeTab === 'sims' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -377,7 +286,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 3: GAMIFIED SCOUT BADGES */}
+        {/* TAB 2: GAMIFIED SCOUT BADGES */}
         {activeTab === 'badges' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{
@@ -443,11 +352,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 4: ACCOUNT / AUTH STATUS */}
+        {/* TAB 3: ACCOUNT / AUTH & APP PREFERENCES */}
         {activeTab === 'account' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div className="glass-panel glow-active" style={{ padding: '1.25rem', background: 'var(--surface-container-low)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '0.85rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <div className="glass-panel glow-active" style={{ padding: '1.15rem', background: 'var(--surface-container-low)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '0.75rem' }}>
                 <div style={{
                   width: '38px',
                   height: '38px',
@@ -477,6 +386,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
+            {/* Quick App Preferences (Theme & Backup) */}
+            <div style={{
+              background: 'var(--surface-container-low)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '0.85rem 1rem',
+              border: '1px solid var(--glass-border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#ffffff' }}>Color Theme</div>
+                <button
+                  onClick={onToggleTheme}
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem' }}
+                >
+                  {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+                  {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                </button>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#ffffff' }}>Backup Local Data</div>
+                <button
+                  onClick={handleExportData}
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem' }}
+                >
+                  <Download size={13} /> Backup (JSON)
+                </button>
+              </div>
+            </div>
+
             <button
               onClick={() => {
                 onLogout();
@@ -485,13 +428,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="btn btn-secondary"
               style={{
                 width: '100%',
-                padding: '0.85rem',
+                padding: '0.75rem',
                 borderColor: 'rgba(244, 114, 182, 0.4)',
                 color: 'var(--cyber-pink)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '0.5rem'
+                gap: '0.5rem',
+                marginTop: '0.25rem'
               }}
             >
               <LogOut size={16} /> Switch Account / Re-test OTP Login

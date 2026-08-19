@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { AuthUser, TelcoProvider } from '../types';
+import { sendSupabasePhoneOtp, verifySupabasePhoneOtp, isSupabaseConfigured } from '../services/supabase';
 import { Zap, ShieldCheck, ArrowRight, RefreshCw, Sparkles } from 'lucide-react';
 
 interface PhoneAuthViewProps {
   onLoginSuccess: (user: AuthUser) => void;
   onSkipGuest: () => void;
 }
+
+// Build-time gate for Quick Demo bypass (structurally excluded from production builds unless VITE_DEMO_MODE is true)
+const IS_DEMO_ENABLED = Boolean(import.meta.env.DEV || import.meta.env.VITE_DEMO_MODE === 'true');
 
 // Detect PH Carrier from mobile prefix
 function detectPhCarrier(digits: string): TelcoProvider {
@@ -59,7 +63,7 @@ export const PhoneAuthView: React.FC<PhoneAuthViewProps> = ({
     }
   }, [step, resendTimer]);
 
-  const handleSendOtp = (e: React.FormEvent) => {
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const digits = phoneNumber.replace(/\D/g, '');
     if (digits.length < 10) {
@@ -70,18 +74,30 @@ export const PhoneAuthView: React.FC<PhoneAuthViewProps> = ({
     setErrorMsg(null);
     setIsLoading(true);
 
-    const generated = Math.floor(100000 + Math.random() * 900000).toString();
-    setSimulatedOtp(generated);
-
-    setTimeout(() => {
+    if (isSupabaseConfigured) {
+      const res = await sendSupabasePhoneOtp(phoneNumber);
       setIsLoading(false);
+      if (!res.success && res.error) {
+        setErrorMsg(res.error);
+        return;
+      }
       setStep('otp');
-      setShowSimulatedSms(true);
       setResendTimer(60);
-    }, 600);
+    } else {
+      // Demo / Local development mode
+      const generated = Math.floor(100000 + Math.random() * 900000).toString();
+      setSimulatedOtp(generated);
+
+      setTimeout(() => {
+        setIsLoading(false);
+        setStep('otp');
+        if (IS_DEMO_ENABLED) setShowSimulatedSms(true);
+        setResendTimer(60);
+      }, 500);
+    }
   };
 
-  const handleVerifyOtp = (e?: React.FormEvent) => {
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (otpCode.length < 6) {
       setErrorMsg('Please enter the 6-digit verification code');
@@ -89,8 +105,15 @@ export const PhoneAuthView: React.FC<PhoneAuthViewProps> = ({
     }
 
     setIsLoading(true);
-    setTimeout(() => {
+    setErrorMsg(null);
+
+    if (isSupabaseConfigured) {
+      const res = await verifySupabasePhoneOtp(phoneNumber, otpCode);
       setIsLoading(false);
+      if (!res.success && res.error) {
+        setErrorMsg(res.error);
+        return;
+      }
       const user: AuthUser = {
         phoneNumber: phoneNumber.trim(),
         telco: detectedTelco,
@@ -98,10 +121,23 @@ export const PhoneAuthView: React.FC<PhoneAuthViewProps> = ({
         verifiedAt: new Date().toISOString()
       };
       onLoginSuccess(user);
-    }, 500);
+    } else {
+      // Demo / Local development mode check
+      setTimeout(() => {
+        setIsLoading(false);
+        const user: AuthUser = {
+          phoneNumber: phoneNumber.trim(),
+          telco: detectedTelco,
+          isLoggedIn: true,
+          verifiedAt: new Date().toISOString()
+        };
+        onLoginSuccess(user);
+      }, 400);
+    }
   };
 
   const handleAutoFillTestOtp = () => {
+    if (!IS_DEMO_ENABLED) return;
     setOtpCode(simulatedOtp);
     setTimeout(() => {
       const user: AuthUser = {
@@ -386,28 +422,30 @@ export const PhoneAuthView: React.FC<PhoneAuthViewProps> = ({
               />
             </div>
 
-            {/* Quick 1-tap Auto-fill button */}
-            <div style={{
-              background: 'var(--surface-container-low)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '0.6rem 0.8rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              border: '1px solid var(--glass-border)'
-            }}>
-              <div style={{ fontSize: 'clamp(0.68rem, 2.2vw, 0.72rem)', color: 'var(--on-surface-variant)' }}>
-                OTP: <span style={{ color: 'var(--neon-lime)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{simulatedOtp}</span>
+            {/* Quick 1-tap Auto-fill button (Only present in dev/demo builds) */}
+            {IS_DEMO_ENABLED && (
+              <div style={{
+                background: 'var(--surface-container-low)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '0.6rem 0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                border: '1px solid var(--glass-border)'
+              }}>
+                <div style={{ fontSize: 'clamp(0.68rem, 2.2vw, 0.72rem)', color: 'var(--on-surface-variant)' }}>
+                  OTP: <span style={{ color: 'var(--neon-lime)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{simulatedOtp}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoFillTestOtp}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem' }}
+                >
+                  <Sparkles size={11} color="var(--primary)" /> Fill
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleAutoFillTestOtp}
-                className="btn btn-secondary btn-sm"
-                style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem' }}
-              >
-                <Sparkles size={11} color="var(--primary)" /> Fill
-              </button>
-            </div>
+            )}
 
             <button
               type="submit"
@@ -447,24 +485,26 @@ export const PhoneAuthView: React.FC<PhoneAuthViewProps> = ({
           </form>
         )}
 
-        {/* Skip / Continue as Guest */}
-        <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--glass-border)', textAlign: 'center' }}>
-          <button
-            onClick={onSkipGuest}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--on-surface-variant)',
-              fontSize: 'clamp(0.72rem, 2.4vw, 0.78rem)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              textUnderlineOffset: '3px'
-            }}
-          >
-            Skip for Testing • Explore Demo →
-          </button>
-        </div>
+        {/* Skip / Continue as Guest (Only present in dev/demo builds) */}
+        {IS_DEMO_ENABLED && (
+          <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--glass-border)', textAlign: 'center' }}>
+            <button
+              onClick={onSkipGuest}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--on-surface-variant)',
+                fontSize: 'clamp(0.72rem, 2.4vw, 0.78rem)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                textUnderlineOffset: '3px'
+              }}
+            >
+              Skip for Testing • Explore Demo →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

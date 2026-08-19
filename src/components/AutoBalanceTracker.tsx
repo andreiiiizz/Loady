@@ -3,7 +3,30 @@ import { SimCard } from '../types';
 import { parseTelcoSms, SAMPLE_TELCO_SMS } from '../services/smsParser';
 import { applyAutoDecay } from '../services/burnRateEngine';
 import { getLiveNetworkStatus, saveWifiShield, getSessionDataTransferredMb } from '../services/networkMonitor';
-import { Clipboard, PhoneCall, Sparkles, CheckCircle2, RefreshCw, Smartphone, Activity, Zap, Check, Wifi, ShieldCheck, Radio, FlaskConical } from 'lucide-react';
+import {
+  getNotificationCapabilities,
+  requestNotificationPermission,
+  checkAndDispatchThresholdAlerts
+} from '../services/notificationService';
+import {
+  Clipboard,
+  PhoneCall,
+  Sparkles,
+  CheckCircle2,
+  RefreshCw,
+  Smartphone,
+  Activity,
+  Zap,
+  Check,
+  Wifi,
+  Radio,
+  FlaskConical,
+  Bell,
+  BellRing,
+  Info,
+  Share2,
+  Apple
+} from 'lucide-react';
 
 interface AutoBalanceTrackerProps {
   sim: SimCard;
@@ -21,6 +44,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
   const [netStatus, setNetStatus] = useState(getLiveNetworkStatus());
   const [wifiShield, setWifiShield] = useState(netStatus.wifiShieldActive || netStatus.isWifi);
   const [sessionMb, setSessionMb] = useState(getSessionDataTransferredMb());
+  const [notifState, setNotifState] = useState(getNotificationCapabilities());
 
   // Listen for online / offline / connection events
   useEffect(() => {
@@ -28,6 +52,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
       const live = getLiveNetworkStatus();
       setNetStatus(live);
       setSessionMb(getSessionDataTransferredMb());
+      setNotifState(getNotificationCapabilities());
     };
 
     window.addEventListener('online', updateStatus);
@@ -51,6 +76,24 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
     };
   }, []);
 
+  // Web Share Target: Read incoming shared SMS & sanitize URL to scrub PII
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedText = urlParams.get('text') || urlParams.get('title');
+
+    if (sharedText) {
+      // Immediately scrub PII from URL & browser history
+      window.history.replaceState({}, document.title, window.location.pathname);
+      handleParseAndApply(sharedText);
+    }
+  }, []);
+
+  // Check notifications whenever SIM data updates
+  useEffect(() => {
+    checkAndDispatchThresholdAlerts(sim);
+  }, [sim]);
+
   const handleToggleAutoTracking = () => {
     const updated = { ...sim, autoTrackingEnabled: !sim.autoTrackingEnabled };
     onUpdateSim(updated);
@@ -64,7 +107,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
     if (next) {
       setParseSuccessMsg("🛡️ Wi-Fi Shield Enabled: Mobile balance is 100% protected (0 MB deducted).");
     } else {
-      setParseSuccessMsg("📶 Mobile Data Mode Active: Real-time cellular tracking active.");
+      setParseSuccessMsg("📶 Mobile Data Mode Active: Real-time cellular pacing active.");
     }
     setTimeout(() => setParseSuccessMsg(null), 4000);
   };
@@ -90,7 +133,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
       setIsSimulatingDecay(false);
 
       if (deductedMb > 0) {
-        setParseSuccessMsg(`Real-time sync complete: Deducted ${deductedMb} MB based on actual cellular delta time.`);
+        setParseSuccessMsg(`Sync complete: Deducted ${deductedMb} MB based on actual cellular delta time.`);
       } else {
         setParseSuccessMsg(`Balance is already up-to-date! (0 MB change).`);
       }
@@ -131,7 +174,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
             timestamp: new Date().toISOString(),
             usedMb: 0,
             source: 'sms_sync' as const,
-            description: `SMS Balance Update: ${(parsed.remainingDataMb / 1024).toFixed(2)} GB left`
+            description: `Check-in Verified: ${(parsed.remainingDataMb / 1024).toFixed(2)} GB left`
           }
         ].slice(-50)
       };
@@ -139,7 +182,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
       onUpdateSim(updated);
       setSmsInput('');
       setGomoGbInput((parsed.remainingDataMb / 1024).toFixed(1));
-      setParseSuccessMsg(`Success! Updated balance to ${(parsed.remainingDataMb / 1024).toFixed(2)} GB (${parsed.promoName})`);
+      setParseSuccessMsg(`Success! Calibrated balance to ${(parsed.remainingDataMb / 1024).toFixed(2)} GB (${parsed.promoName})`);
       setTimeout(() => setParseSuccessMsg(null), 5000);
     } else {
       setParseSuccessMsg('Could not detect data volume in SMS. Try pasting the full telco balance SMS.');
@@ -149,18 +192,14 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
 
   const handleQuickGomoSync = (e: React.FormEvent) => {
     e.preventDefault();
-    const gb = parseFloat(gomoGbInput);
-    if (isNaN(gb) || gb < 0) return;
+    const parsedGb = parseFloat(gomoGbInput);
+    if (isNaN(parsedGb) || parsedGb < 0) return;
 
-    const remainingMb = Math.round(gb * 1024);
+    const newMb = Math.round(parsedGb * 1024 * 10) / 10;
     const updated: SimCard = {
       ...sim,
-      remainingDataMb: remainingMb,
-      totalDataMb: Math.max(sim.totalDataMb, remainingMb, 30 * 1024),
-      telco: sim.telco === 'GOMO' ? 'GOMO' : sim.telco,
-      activePromo: sim.activePromo.includes('GOMO') ? sim.activePromo : '30GB No Expiry',
-      expiryDate: 'NO_EXPIRY',
-      isNoExpiry: true,
+      remainingDataMb: newMb,
+      totalDataMb: Math.max(sim.totalDataMb, newMb),
       lastSyncAt: new Date().toISOString(),
       usageHistory: [
         ...(sim.usageHistory || []),
@@ -168,15 +207,15 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
           id: 'manual-gomo-' + Date.now(),
           timestamp: new Date().toISOString(),
           usedMb: 0,
-          source: 'manual' as const,
-          description: `GOMO App Calibration: ${gb.toFixed(2)} GB set`
+          source: 'manual_calibration' as const,
+          description: `Direct GOMO Calibration: ${parsedGb.toFixed(2)} GB left`
         }
       ].slice(-50)
     };
 
     onUpdateSim(updated);
-    setParseSuccessMsg(`GOMO Balance successfully calibrated to ${gb.toFixed(2)} GB! LoadWise is now tracking usage.`);
-    setTimeout(() => setParseSuccessMsg(null), 4500);
+    setParseSuccessMsg(`Direct GOMO calibration saved: ${parsedGb.toFixed(2)} GB remaining.`);
+    setTimeout(() => setParseSuccessMsg(null), 4000);
   };
 
   const handleReadClipboard = async () => {
@@ -193,72 +232,69 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
     }
   };
 
+  const handleEnableNotifications = async () => {
+    const res = await requestNotificationPermission();
+    setNotifState(getNotificationCapabilities());
+    if (res === 'granted') {
+      setParseSuccessMsg('🔔 Push Notifications Enabled: You will receive 24h & 6h promo expiry alerts.');
+      setTimeout(() => setParseSuccessMsg(null), 4500);
+    }
+  };
+
   const isCurrentlyWifi = wifiShield || netStatus.isWifi;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(0.75rem, 2.5vw, 1.25rem)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       
-      {/* 🛡️ SMART WI-FI DETECTION & CELLULAR TELEMETRY SHIELD */}
+      {/* 1. Smart Wi-Fi Detection & Zero-Decay Shield */}
       <div className="glass-panel" style={{
-        padding: 'clamp(1rem, 3.5vw, 1.5rem)',
-        position: 'relative',
-        overflow: 'hidden',
-        border: isCurrentlyWifi ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(168, 85, 247, 0.4)',
+        padding: 'clamp(1rem, 3.5vw, 1.4rem)',
         background: isCurrentlyWifi
-          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.08) 0%, rgba(20, 24, 33, 0.95) 100%)'
-          : 'linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(20, 24, 33, 0.95) 100%)'
+          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.12) 0%, rgba(20, 24, 33, 0.95) 100%)'
+          : 'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(20, 24, 33, 0.95) 100%)',
+        border: isCurrentlyWifi ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(168, 85, 247, 0.35)',
+        boxShadow: isCurrentlyWifi ? 'var(--glow-success)' : 'var(--glow-active)'
       }}>
-        {/* Glow effect */}
-        <div style={{
-          position: 'absolute',
-          top: '-35px',
-          right: '-35px',
-          width: '110px',
-          height: '110px',
-          borderRadius: '50%',
-          background: isCurrentlyWifi ? 'rgba(74, 222, 128, 0.2)' : 'rgba(168, 85, 247, 0.2)',
-          filter: 'blur(35px)',
-          pointerEvents: 'none'
-        }} />
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.9rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
             <div style={{
-              width: 'clamp(38px, 9.5vw, 44px)',
-              height: 'clamp(38px, 9.5vw, 44px)',
+              width: 'clamp(36px, 9vw, 42px)',
+              height: 'clamp(36px, 9vw, 42px)',
               borderRadius: 'var(--radius-lg)',
-              background: isCurrentlyWifi ? 'rgba(74, 222, 128, 0.18)' : 'rgba(168, 85, 247, 0.18)',
-              border: isCurrentlyWifi ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(168, 85, 247, 0.4)',
-              color: isCurrentlyWifi ? 'var(--neon-lime)' : 'var(--primary)',
+              background: isCurrentlyWifi 
+                ? 'linear-gradient(135deg, #22c55e, #16a34a)' 
+                : 'linear-gradient(135deg, #a855f7, #7c3aed)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              color: '#ffffff',
+              boxShadow: isCurrentlyWifi ? '0 0 15px rgba(34, 197, 94, 0.5)' : '0 0 15px rgba(168, 85, 247, 0.5)',
               flexShrink: 0
             }}>
-              {isCurrentlyWifi ? <Wifi size={22} /> : <Radio size={22} className="animate-pulse" />}
+              {isCurrentlyWifi ? <Wifi size={20} /> : <Radio size={20} />}
             </div>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                <span style={{ fontFamily: 'var(--font-headline)', fontWeight: 700, fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', color: '#ffffff' }}>
-                  {isCurrentlyWifi ? 'Home Wi-Fi Active' : 'Cellular Mobile Data'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: 'var(--font-headline)', fontWeight: 800, fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', color: '#ffffff' }}>
+                  {isCurrentlyWifi ? 'Home Wi-Fi Shield Active' : 'Mobile Cellular Mode'}
                 </span>
                 <span style={{
                   fontSize: '9px',
-                  padding: '0.12rem 0.45rem',
+                  fontWeight: 800,
+                  padding: '0.15rem 0.5rem',
                   borderRadius: 'var(--radius-full)',
-                  fontWeight: 700,
                   fontFamily: 'var(--font-mono)',
-                  backgroundColor: isCurrentlyWifi ? 'rgba(74, 222, 128, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                  backgroundColor: isCurrentlyWifi ? 'rgba(74, 222, 128, 0.25)' : 'rgba(239, 68, 68, 0.25)',
                   color: isCurrentlyWifi ? 'var(--neon-lime)' : '#f87171',
-                  border: isCurrentlyWifi ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(239, 68, 68, 0.4)'
+                  border: isCurrentlyWifi ? '1px solid rgba(74, 222, 128, 0.45)' : '1px solid rgba(239, 68, 68, 0.45)'
                 }}>
-                  {isCurrentlyWifi ? '0 MB DECAY (PAUSED)' : 'LIVE METERING'}
+                  {isCurrentlyWifi ? '0 MB DECAY (PAUSED)' : 'CELLULAR PACING'}
                 </span>
               </div>
-              <div style={{ fontSize: 'clamp(0.7rem, 2.4vw, 0.76rem)', color: 'var(--on-surface-variant)', marginTop: '0.15rem' }}>
+              <div style={{ fontSize: 'clamp(0.72rem, 2.4vw, 0.78rem)', color: 'var(--on-surface-variant)', marginTop: '0.15rem' }}>
                 {isCurrentlyWifi 
-                  ? 'Your prepaid load is protected. No data is burned while on Wi-Fi.'
-                  : `Tracking cellular telemetry (~${netStatus.downlinkMbps} Mbps link speed)`}
+                  ? 'Your prepaid load is protected. Data decay is paused while connected to Wi-Fi.'
+                  : `Active cellular connection (~${netStatus.downlinkMbps} Mbps)`}
               </div>
             </div>
           </div>
@@ -296,6 +332,25 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
           </label>
         </div>
 
+        {/* Safari / iOS Compatibility Notice */}
+        {!netStatus.isApiSupported && netStatus.isIosDevice && (
+          <div style={{
+            background: 'rgba(56, 189, 248, 0.12)',
+            border: '1px solid rgba(56, 189, 248, 0.35)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.55rem 0.75rem',
+            marginBottom: '0.75rem',
+            fontSize: '0.72rem',
+            color: '#e0f2fe',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem'
+          }}>
+            <Info size={14} color="#38bdf8" style={{ flexShrink: 0 }} />
+            <span><strong>iOS Safari Note:</strong> Apple restricts automatic network type detection. Tap the <strong>Wi-Fi Shield switch</strong> above when on Wi-Fi to pause decay.</span>
+          </div>
+        )}
+
         {/* Real-Time Telemetry Stats Pill */}
         <div style={{
           display: 'grid',
@@ -309,38 +364,85 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
         }}>
           <div>
             <div style={{ color: 'var(--on-surface-variant)', fontSize: '0.65rem' }}>Connection:</div>
-            <div style={{ fontWeight: 700, color: '#ffffff', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ fontWeight: 800, color: '#ffffff', fontFamily: 'var(--font-mono)' }}>
               {isCurrentlyWifi ? 'Wi-Fi / LAN' : (netStatus.effectiveType.toUpperCase() || 'Cellular')}
             </div>
           </div>
           <div>
             <div style={{ color: 'var(--on-surface-variant)', fontSize: '0.65rem' }}>Link Speed:</div>
-            <div style={{ fontWeight: 700, color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ fontWeight: 800, color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>
               {netStatus.downlinkMbps} Mbps
             </div>
           </div>
           <div>
-            <div style={{ color: 'var(--on-surface-variant)', fontSize: '0.65rem' }}>App Data:</div>
-            <div style={{ fontWeight: 700, color: 'var(--neon-lime)', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ color: 'var(--on-surface-variant)', fontSize: '0.65rem' }}>In-App Telemetry:</div>
+            <div style={{ fontWeight: 800, color: 'var(--neon-lime)', fontFamily: 'var(--font-mono)' }}>
               {sessionMb} MB
             </div>
           </div>
         </div>
-
-        <div style={{
-          marginTop: '0.65rem',
-          fontSize: '0.68rem',
-          color: 'var(--on-surface-variant)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.35rem'
-        }}>
-          <ShieldCheck size={12} color="var(--neon-lime)" />
-          <span>Toggle <strong>Wi-Fi Shield</strong> anytime on iPhone or PC to simulate home Wi-Fi protection.</span>
-        </div>
       </div>
 
-      {/* Auto-Tracking Master Control */}
+      {/* 2. Web Push Expiration Alerts Card */}
+      <div className="glass-panel" style={{ padding: 'clamp(1rem, 3.5vw, 1.4rem)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+            <div style={{
+              width: '34px',
+              height: '34px',
+              borderRadius: 'var(--radius-md)',
+              background: notifState.permission === 'granted' ? 'rgba(74, 222, 128, 0.2)' : 'rgba(168, 85, 247, 0.2)',
+              color: notifState.permission === 'granted' ? 'var(--neon-lime)' : 'var(--primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              {notifState.permission === 'granted' ? <BellRing size={18} /> : <Bell size={18} />}
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#ffffff' }}>
+                {notifState.permission === 'granted' ? 'Expiry Push Alerts Active' : 'Enable Expiration Push Alerts'}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
+                {notifState.permission === 'granted' 
+                  ? 'Alerts trigger at 24h, 6h, and low balance (<500MB)'
+                  : 'Receive proactive alerts before promo data runs out'}
+              </div>
+            </div>
+          </div>
+
+          {notifState.permission !== 'granted' && (
+            <button
+              onClick={handleEnableNotifications}
+              className="btn btn-primary btn-sm"
+              style={{ fontSize: '0.72rem', padding: '0.35rem 0.75rem', borderRadius: 'var(--radius-full)', flexShrink: 0 }}
+            >
+              Enable
+            </button>
+          )}
+        </div>
+
+        {/* iOS Web Push Guidance */}
+        {notifState.isIosInBrowser && (
+          <div style={{
+            marginTop: '0.65rem',
+            background: 'rgba(255, 255, 255, 0.04)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.55rem 0.75rem',
+            fontSize: '0.7rem',
+            color: 'var(--on-surface-variant)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.35rem'
+          }}>
+            <Apple size={14} color="#ffffff" style={{ flexShrink: 0 }} />
+            <span><strong>iOS 16.4+ Requirement:</strong> Tap <Share2 size={11} style={{ display: 'inline' }} /> Share $\rightarrow$ <strong>"Add to Home Screen"</strong> to receive background push notifications.</span>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Honest Forecast & Check-in Control */}
       <div className="glass-panel" style={{ padding: 'clamp(1rem, 3.5vw, 1.5rem)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
@@ -359,11 +461,11 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
               <Activity size={20} />
             </div>
             <div>
-              <div style={{ fontFamily: 'var(--font-headline)', fontWeight: 700, fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', color: '#ffffff' }}>
-                Auto Balance Engine
+              <div style={{ fontFamily: 'var(--font-headline)', fontWeight: 800, fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', color: '#ffffff' }}>
+                Check-in Pacing Engine
               </div>
               <div style={{ fontSize: 'clamp(0.7rem, 2.4vw, 0.75rem)', color: 'var(--on-surface-variant)' }}>
-                {sim.autoTrackingEnabled ? 'Real-time delta tracking active' : 'Tracking is paused'}
+                {sim.autoTrackingEnabled ? 'Forecast calibrated via check-in deltas' : 'Pacing model is paused'}
               </div>
             </div>
           </div>
@@ -400,7 +502,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
           </label>
         </div>
 
-        {/* Status Breakdown */}
+        {/* Pacing Info Box */}
         <div style={{
           background: 'var(--surface-container-low)',
           borderRadius: 'var(--radius-lg)',
@@ -413,29 +515,29 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
           border: '1px solid var(--glass-border)'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: 'var(--on-surface-variant)' }}>Current Profile:</span>
-            <span style={{ fontWeight: 600, textTransform: 'capitalize', color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>
-              {sim.usageProfile} ({sim.usageProfile === 'light' ? '~360 MB/d' : sim.usageProfile === 'heavy' ? '~3.3 GB/d' : '~1.3 GB/d'})
+            <span style={{ color: 'var(--on-surface-variant)' }}>Forecast Method:</span>
+            <span style={{ fontWeight: 700, color: '#ffffff', fontFamily: 'var(--font-mono)' }}>
+              Check-In Deltas + Promo Timeline
             </span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: 'var(--on-surface-variant)' }}>Last Sync:</span>
-            <span style={{ fontWeight: 500, color: 'var(--on-surface)', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ color: 'var(--on-surface-variant)' }}>Last Check-in:</span>
+            <span style={{ fontWeight: 600, color: 'var(--neon-lime)', fontFamily: 'var(--font-mono)' }}>
               {sim.lastSyncAt ? new Date(sim.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Just now'}
             </span>
           </div>
         </div>
 
-        {/* Primary Real-Time Sync Button */}
+        {/* Primary Sync Button */}
         <button
           onClick={handleForceDecaySync}
           disabled={isSimulatingDecay}
           className="btn btn-secondary"
-          style={{ width: '100%', marginTop: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 600 }}
+          style={{ width: '100%', marginTop: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 700 }}
         >
           <RefreshCw size={14} className={isSimulatingDecay ? 'animate-spin' : ''} />
-          {isSimulatingDecay ? 'Checking Network & Syncing...' : 'Sync Balance (Checks Wi-Fi & Delta)'}
+          {isSimulatingDecay ? 'Evaluating Pacing Model...' : 'Sync Balance (Checks Wi-Fi & Delta)'}
         </button>
 
         {/* Evaluator Demo Simulation Pill */}
@@ -462,74 +564,76 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
         </div>
       </div>
 
-      {/* GOMO & Quick Calibration Card */}
-      <div className="glass-panel glow-active" style={{ padding: 'clamp(1rem, 3.5vw, 1.5rem)', background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(24, 27, 37, 0.95))' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.45rem' }}>
-          <Smartphone size={18} color="var(--primary)" />
-          <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', fontWeight: 700, color: '#ffffff' }}>
-            GOMO / Direct GB Calibration
-          </h3>
-        </div>
-
-        <p style={{ fontSize: 'clamp(0.72rem, 2.4vw, 0.78rem)', color: 'var(--on-surface-variant)', lineHeight: 1.45, marginBottom: '0.85rem' }}>
-          GOMO does not have a balance dialer code. Glance at your GOMO app balance, type your remaining GB below, and LoadWise takes over automatic burn-rate tracking:
-        </p>
-
-        <form onSubmit={handleQuickGomoSync} style={{ display: 'flex', gap: '0.5rem' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              max="1000"
-              value={gomoGbInput}
-              onChange={(e) => setGomoGbInput(e.target.value)}
-              placeholder="e.g. 2.03"
-              style={{
-                width: '100%',
-                background: 'var(--surface-container-low)',
-                border: '1px solid var(--electric-purple)',
-                boxShadow: 'var(--glow-active)',
-                borderRadius: 'var(--radius-lg)',
-                padding: '0.65rem 0.85rem',
-                color: '#ffffff',
-                fontSize: 'clamp(0.95rem, 3.5vw, 1.1rem)',
-                fontFamily: 'var(--font-mono)',
-                fontWeight: 700,
-                outline: 'none'
-              }}
-            />
-            <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--on-surface-variant)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-              GB
-            </span>
+      {/* 4. GOMO & Direct GB Calibration Card - Only visible when active SIM is GOMO */}
+      {sim.telco === 'GOMO' && (
+        <div className="glass-panel glow-active" style={{ padding: 'clamp(1rem, 3.5vw, 1.5rem)', background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(24, 27, 37, 0.95))' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.45rem' }}>
+            <Smartphone size={18} color="var(--primary)" />
+            <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', fontWeight: 800, color: '#ffffff' }}>
+              GOMO / Direct GB Calibration
+            </h3>
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{ padding: '0.65rem 1rem', fontSize: 'clamp(0.78rem, 2.6vw, 0.85rem)' }}
-          >
-            <Check size={15} /> Set Balance
-          </button>
-        </form>
-      </div>
+          <p style={{ fontSize: 'clamp(0.72rem, 2.4vw, 0.78rem)', color: 'var(--on-surface-variant)', lineHeight: 1.45, marginBottom: '0.85rem' }}>
+            GOMO does not have a balance dialer code. Glance at your GOMO app balance, type your remaining GB below to calibrate:
+          </p>
 
-      {/* Instant SMS Paste & Parser */}
+          <form onSubmit={handleQuickGomoSync} style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                max="1000"
+                value={gomoGbInput}
+                onChange={(e) => setGomoGbInput(e.target.value)}
+                placeholder="e.g. 2.03"
+                style={{
+                  width: '100%',
+                  background: 'var(--surface-container-low)',
+                  border: '1px solid var(--electric-purple)',
+                  boxShadow: 'var(--glow-active)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: '0.65rem 0.85rem',
+                  color: '#ffffff',
+                  fontSize: 'clamp(0.95rem, 3.5vw, 1.1rem)',
+                  fontFamily: 'var(--font-mono)',
+                  fontWeight: 800,
+                  outline: 'none'
+                }}
+              />
+              <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--on-surface-variant)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                GB
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ padding: '0.65rem 1rem', fontSize: 'clamp(0.78rem, 2.6vw, 0.85rem)', fontWeight: 700 }}
+            >
+              <Check size={15} /> Set Balance
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* 5. Telco SMS Parser (Share Target + Manual Paste) */}
       <div className="glass-panel" style={{ padding: 'clamp(1rem, 3.5vw, 1.5rem)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
             <Sparkles size={18} color="var(--primary)" />
-            <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', fontWeight: 700, color: '#ffffff' }}>
-              Telco SMS Auto-Parser
+            <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', fontWeight: 800, color: '#ffffff' }}>
+              Telco SMS Balance Check-in
             </h3>
           </div>
-          <span style={{ fontSize: '9px', color: 'var(--neon-lime)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-            ON-DEVICE
+          <span style={{ fontSize: '9px', color: 'var(--neon-lime)', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+            SHARE OR PASTE
           </span>
         </div>
 
         <p style={{ fontSize: 'clamp(0.72rem, 2.4vw, 0.78rem)', color: 'var(--on-surface-variant)', marginBottom: '0.75rem', lineHeight: 1.45 }}>
-          Paste any SMS from Globe (8080), Smart (9999), GOMO, or DITO (185) for instant calibration.
+          Share your balance SMS directly from Messages (Android) or paste your official telco text (Smart 9999, Globe 8080, DITO 185) below:
         </p>
 
         <div style={{ position: 'relative' }}>
@@ -544,8 +648,8 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
               border: '1px solid var(--glass-border)',
               borderRadius: 'var(--radius-lg)',
               padding: '0.75rem',
-              color: 'var(--on-surface)',
-              fontSize: 'clamp(0.75rem, 2.5vw, 0.8rem)',
+              color: '#ffffff',
+              fontSize: 'clamp(0.78rem, 2.5vw, 0.82rem)',
               fontFamily: 'var(--font-body)',
               resize: 'none',
               outline: 'none'
@@ -557,15 +661,15 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
           <button
             onClick={handleReadClipboard}
             className="btn btn-secondary"
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontWeight: 700 }}
           >
-            <Clipboard size={14} /> Paste
+            <Clipboard size={14} /> Paste SMS
           </button>
           <button
             onClick={() => handleParseAndApply(smsInput)}
             disabled={!smsInput.trim()}
             className="btn btn-primary"
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontWeight: 700 }}
           >
             <Zap size={14} /> Parse & Apply
           </button>
@@ -577,10 +681,10 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
             padding: '0.65rem 0.85rem',
             borderRadius: 'var(--radius-lg)',
             background: 'rgba(74, 222, 128, 0.15)',
-            border: '1px solid rgba(74, 222, 128, 0.3)',
+            border: '1px solid rgba(74, 222, 128, 0.35)',
             color: 'var(--neon-lime)',
             fontSize: 'clamp(0.72rem, 2.4vw, 0.78rem)',
-            fontWeight: 600,
+            fontWeight: 700,
             display: 'flex',
             alignItems: 'center',
             gap: '0.35rem'
@@ -592,7 +696,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
 
         <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--glass-border)' }}>
           <div className="font-label-caps" style={{ color: 'var(--on-surface-variant)', marginBottom: '0.45rem', fontSize: '9px' }}>
-            TAP TO TRY SAMPLE TELCO SMS:
+            TEST WITH SAMPLE TELCO SMS:
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
             {SAMPLE_TELCO_SMS.map((sample, idx) => (
@@ -603,7 +707,7 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
                   handleParseAndApply(sample.text);
                 }}
                 className="btn btn-secondary btn-sm"
-                style={{ fontSize: 'clamp(0.64rem, 2vw, 0.7rem)', padding: '0.25rem 0.5rem' }}
+                style={{ fontSize: 'clamp(0.66rem, 2vw, 0.72rem)', padding: '0.25rem 0.55rem', fontWeight: 600 }}
               >
                 {sample.label}
               </button>
@@ -612,12 +716,12 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
         </div>
       </div>
 
-      {/* Telco USSD Quick Dialers */}
+      {/* 6. Telco USSD Quick Dialers */}
       <div className="glass-panel" style={{ padding: 'clamp(1rem, 3.5vw, 1.5rem)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.45rem' }}>
           <PhoneCall size={18} color="var(--neon-lime)" />
-          <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', fontWeight: 700, color: '#ffffff' }}>
-            USSD Shortcodes
+          <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: 'clamp(0.95rem, 3.4vw, 1.05rem)', fontWeight: 800, color: '#ffffff' }}>
+            1-Tap USSD Shortcodes
           </h3>
         </div>
 
@@ -625,11 +729,11 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
           <a
             href="tel:*143%23"
             className="glass-panel"
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', textDecoration: 'none', color: 'var(--on-surface)' }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', textDecoration: 'none', color: '#ffffff' }}
           >
             <div>
-              <div style={{ fontWeight: 700, fontSize: '0.8rem' }}>Globe / TM</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>*143#</div>
+              <div style={{ fontWeight: 800, fontSize: '0.82rem' }}>Globe / TM</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>*143#</div>
             </div>
             <PhoneCall size={14} color="var(--primary)" />
           </a>
@@ -637,11 +741,11 @@ export const AutoBalanceTracker: React.FC<AutoBalanceTrackerProps> = ({
           <a
             href="tel:*123%23"
             className="glass-panel"
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', textDecoration: 'none', color: 'var(--on-surface)' }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', textDecoration: 'none', color: '#ffffff' }}
           >
             <div>
-              <div style={{ fontWeight: 700, fontSize: '0.8rem' }}>Smart / TNT</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--neon-lime)', fontFamily: 'var(--font-mono)' }}>*123#</div>
+              <div style={{ fontWeight: 800, fontSize: '0.82rem' }}>Smart / TNT</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--neon-lime)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>*123#</div>
             </div>
             <PhoneCall size={14} color="var(--neon-lime)" />
           </a>

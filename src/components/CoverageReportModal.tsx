@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { CoverageReport, TelcoProvider } from '../types';
-import { Star, MapPin, Radio } from 'lucide-react';
+import { submitCoverageReport } from '../services/supabase';
+import { Star, MapPin, Radio, AlertCircle, Loader2 } from 'lucide-react';
 
 interface CoverageReportModalProps {
   isOpen: boolean;
@@ -24,6 +25,8 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
   const [networkType, setNetworkType] = useState<CoverageReport['networkType']>('5G');
   const [notes, setNotes] = useState('');
   const [isLocating, setIsLocating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [coordinates, setCoordinates] = useState<[number, number]>([14.6202, 121.0531]);
 
   if (!isOpen) return null;
@@ -44,9 +47,12 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barangay.trim()) return;
+
+    setSubmitError(null);
+    setIsSubmitting(true);
 
     const newReport: CoverageReport = {
       id: 'report-' + Date.now(),
@@ -63,17 +69,30 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
     };
 
     try {
-      confetti({
-        particleCount: 60,
-        spread: 50,
-        origin: { y: 0.6 }
-      });
-    } catch {
-      // ignore
-    }
+      const res = await submitCoverageReport(newReport);
+      if (!res.success && res.error) {
+        setSubmitError(res.error);
+        setIsSubmitting(false);
+        return;
+      }
 
-    onSubmitReport(newReport);
-    onClose();
+      try {
+        confetti({
+          particleCount: 60,
+          spread: 50,
+          origin: { y: 0.6 }
+        });
+      } catch {
+        // ignore
+      }
+
+      onSubmitReport(res.report || newReport);
+      setIsSubmitting(false);
+      onClose();
+    } catch (err: any) {
+      setSubmitError(err.message || 'Failed to submit report');
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -265,12 +284,41 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
             />
           </div>
 
+          {submitError && (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: 'var(--radius-md)',
+              padding: '0.65rem 0.85rem',
+              color: '#f87171',
+              fontSize: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem'
+            }}>
+              <AlertCircle size={14} style={{ flexShrink: 0 }} />
+              <span>{submitError}</span>
+            </div>
+          )}
+
           <button
             type="submit"
+            disabled={isSubmitting}
             className="btn btn-primary"
-            style={{ width: '100%', marginTop: '0.5rem', padding: '0.85rem', borderRadius: 'var(--radius-lg)', fontWeight: 700 }}
+            style={{
+              width: '100%',
+              marginTop: '0.5rem',
+              padding: '0.85rem',
+              borderRadius: 'var(--radius-lg)',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem'
+            }}
           >
-            Log Radar Signal
+            {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Radio size={16} />}
+            {isSubmitting ? 'Transmitting Radar Signal...' : 'Log Radar Signal'}
           </button>
         </form>
       </div>

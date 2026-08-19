@@ -14,7 +14,7 @@ export interface UsageRecord {
   id: string;
   timestamp: string;
   usedMb: number;
-  source: 'auto_decay' | 'sms_sync' | 'manual' | 'session_telemetry';
+  source: 'auto_decay' | 'sms_sync' | 'manual' | 'manual_calibration' | 'session_telemetry';
   description?: string;
 }
 

@@ -1,21 +1,29 @@
 import { SimCard, ForecastResult, UsageProfile } from '../types';
 
-// Baseline consumption rates by profile (MB per hour)
+/**
+ * Baseline consumption rates by check-in pacing (MB per hour).
+ * Used as an initial prior before multiple user balance check-ins are recorded.
+ */
 export const PROFILE_BASELINE_MB_HR: Record<UsageProfile, number> = {
-  light: 15,      // ~360 MB / day (Chat, emails, occasional social feed)
-  moderate: 55,   // ~1.32 GB / day (Casual YouTube, TikTok, browsing)
-  heavy: 140,     // ~3.36 GB / day (Online gaming like MLBB/CODM, HD video)
-  streamer: 280   // ~6.72 GB / day (4K streaming, hot-spotting, large downloads)
+  light: 20,      // ~480 MB / day
+  moderate: 65,   // ~1.56 GB / day
+  heavy: 160,     // ~3.84 GB / day
+  streamer: 300   // ~7.20 GB / day
 };
 
 /**
- * Calculates current real-time burn-rate, time-to-depletion, and forecast metrics.
+ * Calculates burn-rate, time-to-depletion, and forecast metrics based on check-in deltas and promo expiry timeline.
+ * 
+ * NOTE ON BROWSER SANDBOXING:
+ * Web browsers and PWAs on iOS/Android cannot intercept background kernel byte counters from other apps (YouTube, TikTok, etc.).
+ * Therefore, Loady models forecasting primarily around verified user check-in deltas (*123# / SMS / manual input)
+ * and promo expiration deadlines.
  */
 export function calculateForecast(sim: SimCard): ForecastResult {
   const remainingMb = Math.max(0, sim.remainingDataMb);
   const now = new Date();
 
-  // If already exhausted
+  // If balance is zero or depleted
   if (remainingMb <= 0) {
     return {
       burnRateMbPerHour: 0,
@@ -31,72 +39,86 @@ export function calculateForecast(sim: SimCard): ForecastResult {
     };
   }
 
-  // Calculate empirical burn rate from usage history (last 7 days weighted)
+  // 1. Calculate Empirical Burn Rate from User Check-In Deltas
   let empiricalMbPerHour = 0;
-  if (sim.usageHistory && sim.usageHistory.length > 0) {
-    const recentRecords = sim.usageHistory.slice(-15);
-    const totalUsed = recentRecords.reduce((acc, r) => acc + r.usedMb, 0);
+  if (sim.usageHistory && sim.usageHistory.length >= 2) {
+    // Look at check-in events
+    const checkInRecords = sim.usageHistory.slice(-10);
+    const totalDeducted = checkInRecords.reduce((acc, r) => acc + (r.usedMb || 0), 0);
     
-    const earliestTime = new Date(recentRecords[0].timestamp).getTime();
-    const latestTime = new Date(recentRecords[recentRecords.length - 1].timestamp).getTime();
-    const elapsedHours = Math.max(0.5, (latestTime - earliestTime) / (1000 * 60 * 60));
+    const earliestTime = new Date(checkInRecords[0].timestamp).getTime();
+    const latestTime = new Date(checkInRecords[checkInRecords.length - 1].timestamp).getTime();
+    const elapsedHours = Math.max(0.25, (latestTime - earliestTime) / (1000 * 60 * 60));
     
-    empiricalMbPerHour = totalUsed / elapsedHours;
+    empiricalMbPerHour = totalDeducted / elapsedHours;
   }
 
-  // Blend empirical burn rate with baseline profile (70% empirical, 30% baseline if history exists)
+  // 2. Expiry Deadline Analysis
+  let daysUntilExpiry = 999;
+  let willExpireBeforeDepletion = false;
+  let idealPacingMbPerHour = 0;
+
+  if (!sim.isNoExpiry && sim.expiryDate && sim.expiryDate !== 'NO_EXPIRY') {
+    const expiryTime = new Date(sim.expiryDate).getTime();
+    const hoursUntilExpiry = Math.max(0.1, (expiryTime - now.getTime()) / (1000 * 60 * 60));
+    daysUntilExpiry = Math.max(0, hoursUntilExpiry / 24);
+    idealPacingMbPerHour = remainingMb / hoursUntilExpiry;
+  }
+
+  // 3. Blend Empirical Rate with Promo Pacing Target
   const baselineRate = PROFILE_BASELINE_MB_HR[sim.usageProfile || 'moderate'];
-  const burnRateMbPerHour = empiricalMbPerHour > 5 
-    ? (empiricalMbPerHour * 0.75 + baselineRate * 0.25)
-    : baselineRate;
+  let burnRateMbPerHour: number;
+
+  if (empiricalMbPerHour > 2) {
+    // 70% empirical check-in rate + 30% baseline
+    burnRateMbPerHour = empiricalMbPerHour * 0.7 + baselineRate * 0.3;
+  } else if (idealPacingMbPerHour > 0 && daysUntilExpiry < 30) {
+    // Use target promo pacing with baseline prior
+    burnRateMbPerHour = idealPacingMbPerHour * 0.6 + baselineRate * 0.4;
+  } else {
+    burnRateMbPerHour = baselineRate;
+  }
 
   const burnRateGbPerDay = (burnRateMbPerHour * 24) / 1024;
   const hoursRemaining = burnRateMbPerHour > 0 ? remainingMb / burnRateMbPerHour : 999;
 
-  // Projected depletion date
+  // Projected depletion timestamp
   const depletionTimeMs = now.getTime() + hoursRemaining * 60 * 60 * 1000;
   const projectedDepletionDate = new Date(depletionTimeMs).toISOString();
 
-  // Expiry comparison
-  let daysUntilExpiry = 999;
-  let willExpireBeforeDepletion = false;
-
-  if (!sim.isNoExpiry && sim.expiryDate && sim.expiryDate !== 'NO_EXPIRY') {
-    const expiryTime = new Date(sim.expiryDate).getTime();
-    const hoursUntilExpiry = (expiryTime - now.getTime()) / (1000 * 60 * 60);
-    daysUntilExpiry = Math.max(0, hoursUntilExpiry / 24);
-
+  if (!sim.isNoExpiry && daysUntilExpiry < 999) {
+    const hoursUntilExpiry = daysUntilExpiry * 24;
     if (hoursUntilExpiry < hoursRemaining) {
       willExpireBeforeDepletion = true;
     }
   }
 
-  // Status classification
+  // Urgency Status
   let urgencyStatus: ForecastResult['urgencyStatus'] = 'safe';
-  if (hoursRemaining <= 6) {
+  if (hoursRemaining <= 6 || (daysUntilExpiry > 0 && daysUntilExpiry <= 0.25)) {
     urgencyStatus = 'critical_6h';
-  } else if (hoursRemaining <= 24) {
+  } else if (hoursRemaining <= 24 || (daysUntilExpiry > 0 && daysUntilExpiry <= 1.0)) {
     urgencyStatus = 'warning_24h';
   } else if (hoursRemaining <= 72) {
     urgencyStatus = 'normal';
   }
 
-  // Recommended daily quota to last until promo expiry
+  // Recommended daily quota to last smoothly until promo expiry
   const recommendedDailyQuotaMb = daysUntilExpiry > 0 && daysUntilExpiry < 365
     ? remainingMb / Math.max(1, daysUntilExpiry)
     : remainingMb / 7;
 
-  // Data efficiency score (100 = pacing perfectly to expiry date without waste or early starvation)
-  let dataEfficiencyScore = 85;
+  // Data efficiency pacing score (100 = optimal distribution over promo lifespan)
+  let dataEfficiencyScore = 88;
   if (!sim.isNoExpiry && daysUntilExpiry > 0 && daysUntilExpiry < 60) {
     const idealHours = daysUntilExpiry * 24;
     const ratio = hoursRemaining / idealHours;
-    if (ratio >= 0.8 && ratio <= 1.2) {
-      dataEfficiencyScore = 95;
-    } else if (ratio < 0.5) {
-      dataEfficiencyScore = Math.round(ratio * 100); // Burning too fast
+    if (ratio >= 0.85 && ratio <= 1.15) {
+      dataEfficiencyScore = 96;
+    } else if (ratio < 0.6) {
+      dataEfficiencyScore = Math.max(30, Math.round(ratio * 100)); // Depleting ahead of expiry
     } else {
-      dataEfficiencyScore = Math.max(40, Math.round(100 - (ratio - 1) * 25)); // Underutilizing
+      dataEfficiencyScore = Math.max(45, Math.round(100 - (ratio - 1) * 20)); // Under-consuming
     }
   }
 

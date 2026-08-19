@@ -334,9 +334,14 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
           gap: '0.2rem',
           boxShadow: '0 0 15px rgba(0,0,0,0.5)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '9px', fontWeight: 700, color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
-            <Radio size={11} color="var(--primary)" className="animate-pulse" />
-            <span>SIGNAL DOPPLER RADAR</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', fontSize: '9px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: 'var(--on-surface-variant)' }}>
+              <Radio size={11} color="var(--primary)" className="animate-pulse" />
+              <span>SIGNAL DOPPLER RADAR</span>
+            </div>
+            <span style={{ color: 'var(--neon-lime)', fontSize: '8.5px' }}>
+              • {filteredReports.length} CROWD REPORTS
+            </span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '10px', fontFamily: 'var(--font-mono)' }}>

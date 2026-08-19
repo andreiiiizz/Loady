@@ -17,13 +17,16 @@ import {
   CheckCircle,
   Compass,
   Crosshair,
-  MapPin,
   ArrowUpDown,
   Sparkles,
   Bookmark,
   Trash2,
   Share2,
-  Radio
+  Radio,
+  Play,
+  Pause,
+  FastForward,
+  ShieldAlert
 } from 'lucide-react';
 
 export const TripModeView: React.FC = () => {
@@ -51,10 +54,18 @@ export const TripModeView: React.FC = () => {
   const [showOriginSuggestions, setShowOriginSuggestions] = useState<boolean>(false);
   const [showDestSuggestions, setShowDestSuggestions] = useState<boolean>(false);
 
+  // Live Drive Simulation state (Google Maps Route Preview)
+  const [isDriving, setIsDriving] = useState<boolean>(false);
+  const [driveProgressIndex, setDriveProgressIndex] = useState<number>(0);
+  const [driveSpeedMultiplier, setDriveSpeedMultiplier] = useState<number>(1);
+  const [activeCheckpointIndex, setActiveCheckpointIndex] = useState<number>(0);
+
   // Map refs
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const mapLayersRef = useRef<L.LayerGroup | null>(null);
+  const carMarkerRef = useRef<L.Marker | null>(null);
+  const driveIntervalRef = useRef<number | null>(null);
 
   // Determine current active route for display
   const currentRoute: TripRoute =
@@ -115,7 +126,7 @@ export const TripModeView: React.FC = () => {
     setDestCoords(tempCoords);
   };
 
-  // Execute Route Analysis
+  // Execute Route Analysis via real OSRM engine
   const handleAnalyzeCustomRoute = async () => {
     if (!originInput.trim() || !destInput.trim()) {
       alert('Please specify both a starting point and a destination.');
@@ -123,6 +134,8 @@ export const TripModeView: React.FC = () => {
     }
 
     setIsAnalyzing(true);
+    // Stop any ongoing drive preview
+    handleStopDrive();
 
     try {
       // Resolve start coordinates
@@ -143,7 +156,7 @@ export const TripModeView: React.FC = () => {
         endName = resolvedDest.name;
       }
 
-      const generated = generateCustomTripRoute(startName, startPoint, endName, endPoint);
+      const generated = await generateCustomTripRoute(startName, startPoint, endName, endPoint);
       setCustomRoute(generated);
       setSelectedRouteId(generated.id);
 
@@ -179,6 +192,98 @@ export const TripModeView: React.FC = () => {
     setTimeout(() => setCopyFeedback(false), 2200);
   };
 
+  // Fly map camera to a specific checkpoint
+  const handleFlyToCheckpoint = (coords: [number, number], index: number) => {
+    setActiveCheckpointIndex(index);
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo(coords, 12, {
+        duration: 1.2
+      });
+    }
+  };
+
+  // Live Drive Simulation Controls
+  const handleToggleDrive = () => {
+    if (isDriving) {
+      setIsDriving(false);
+      if (driveIntervalRef.current) clearInterval(driveIntervalRef.current);
+    } else {
+      setIsDriving(true);
+    }
+  };
+
+  const handleStopDrive = () => {
+    setIsDriving(false);
+    setDriveProgressIndex(0);
+    if (driveIntervalRef.current) clearInterval(driveIntervalRef.current);
+    if (carMarkerRef.current && mapLayersRef.current) {
+      mapLayersRef.current.removeLayer(carMarkerRef.current);
+      carMarkerRef.current = null;
+    }
+    // Fit back to full route bounds
+    if (mapInstanceRef.current && currentRoute.path.length > 0) {
+      mapInstanceRef.current.fitBounds(L.latLngBounds(currentRoute.path), { padding: [40, 40] });
+    }
+  };
+
+  // Drive animation effect
+  useEffect(() => {
+    if (!isDriving || !currentRoute.path || currentRoute.path.length === 0) {
+      if (driveIntervalRef.current) clearInterval(driveIntervalRef.current);
+      return;
+    }
+
+    const intervalTime = Math.max(100, 250 / driveSpeedMultiplier);
+    driveIntervalRef.current = window.setInterval(() => {
+      setDriveProgressIndex(prev => {
+        const next = prev + 1;
+        if (next >= currentRoute.path.length) {
+          setIsDriving(false);
+          return currentRoute.path.length - 1;
+        }
+
+        const currentCoord = currentRoute.path[next];
+        // Pan map smoothly to follow vehicle
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.panTo(currentCoord, { animate: true, duration: 0.25 });
+        }
+
+        // Update car marker
+        if (mapLayersRef.current) {
+          if (!carMarkerRef.current) {
+            const carIcon = L.divIcon({
+              className: 'live-car-marker',
+              html: `<div style="
+                width: 28px;
+                height: 28px;
+                background: linear-gradient(135deg, #38bdf8, #3b82f6);
+                border: 2px solid #ffffff;
+                border-radius: 50%;
+                box-shadow: 0 0 20px #38bdf8;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 14px;
+              ">🚗</div>`,
+              iconSize: [28, 28],
+              iconAnchor: [14, 14]
+            });
+            carMarkerRef.current = L.marker(currentCoord, { icon: carIcon });
+            mapLayersRef.current.addLayer(carMarkerRef.current);
+          } else {
+            carMarkerRef.current.setLatLng(currentCoord);
+          }
+        }
+
+        return next;
+      });
+    }, intervalTime);
+
+    return () => {
+      if (driveIntervalRef.current) clearInterval(driveIntervalRef.current);
+    };
+  }, [isDriving, driveSpeedMultiplier, currentRoute]);
+
   // Setup Leaflet Interactive Map for current route
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -190,7 +295,7 @@ export const TripModeView: React.FC = () => {
       }).setView([14.5995, 120.9842], 8);
 
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 18,
+        maxZoom: 19,
         subdomains: 'abcd'
       }).addTo(map);
 
@@ -205,103 +310,152 @@ export const TripModeView: React.FC = () => {
 
     if (layers) {
       layers.clearLayers();
+      carMarkerRef.current = null;
 
       if (currentRoute && currentRoute.path && currentRoute.path.length > 0) {
-        // Draw route polyline with glowing outer line
+        // 1. Google Maps-Style Highway Polyline (Outer glowing border + vibrant highway core)
         const polylineGlow = L.polyline(currentRoute.path, {
-          color: '#a855f7',
-          weight: 7,
-          opacity: 0.45,
+          color: '#1e40af', // Deep highway blue casing
+          weight: 8,
+          opacity: 0.85,
           lineCap: 'round',
           lineJoin: 'round'
         });
         const polylineCore = L.polyline(currentRoute.path, {
-          color: '#ddb7ff',
-          weight: 3,
-          opacity: 0.95,
-          dashArray: '6, 6'
+          color: '#38bdf8', // Vibrant Google Maps navigation blue
+          weight: 4.5,
+          opacity: 1.0,
+          lineCap: 'round',
+          lineJoin: 'round'
         });
 
         layers.addLayer(polylineGlow);
         layers.addLayer(polylineCore);
 
-        // Add Start Color Glow Dot
+        // 2. Start Marker (Green "A" Pin)
         const startCoord = currentRoute.path[0];
-        const isGpsStart = gpsStatus === 'locked' && plannerTab === 'custom';
-        const startColor = isGpsStart ? '#38bdf8' : '#4ade80';
         const startIcon = L.divIcon({
-          className: 'custom-trip-marker',
+          className: 'google-start-pin',
           html: `<div style="
-            width: 16px;
-            height: 16px;
+            width: 26px;
+            height: 26px;
             border-radius: 50%;
-            background: ${startColor};
-            box-shadow: 0 0 16px ${startColor};
-            filter: blur(0.5px);
-          "></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8]
+            background: #22c55e;
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 16px rgba(34, 197, 94, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 11px;
+            font-family: sans-serif;
+          ">A</div>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13]
         });
         const startMarker = L.marker(startCoord, { icon: startIcon }).bindPopup(
-          `<strong>Starting Point:</strong><br/>${currentRoute.origin}`
+          `<div style="font-size: 12px; color: #111827;"><strong>🟢 Starting Point:</strong><br/>${currentRoute.origin}</div>`
         );
         layers.addLayer(startMarker);
 
-        // Add Destination Color Glow Dot
+        // 3. Destination Marker (Red "B" Pin)
         const endCoord = currentRoute.path[currentRoute.path.length - 1];
         const endIcon = L.divIcon({
-          className: 'custom-trip-marker',
+          className: 'google-dest-pin',
           html: `<div style="
-            width: 16px;
-            height: 16px;
+            width: 26px;
+            height: 26px;
             border-radius: 50%;
-            background: #f472b6;
-            box-shadow: 0 0 16px rgba(244, 114, 182, 0.95);
-            filter: blur(0.5px);
-          "></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8]
+            background: #ef4444;
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 11px;
+            font-family: sans-serif;
+          ">B</div>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13]
         });
         const endMarker = L.marker(endCoord, { icon: endIcon }).bindPopup(
-          `<strong>Destination:</strong><br/>${currentRoute.destination}`
+          `<div style="font-size: 12px; color: #111827;"><strong>🔴 Destination:</strong><br/>${currentRoute.destination}</div>`
         );
         layers.addLayer(endMarker);
 
-        // Add Checkpoint Color Glow Dots along the way
+        // 4. Deadzone Hazard Alert Pins & Checkpoint Milestones
         currentRoute.checkpoints.forEach((cp, idx) => {
           if (idx === 0 || idx === currentRoute.checkpoints.length - 1) return;
           const hasDeadzone = cp.deadzoneCarriers && cp.deadzoneCarriers.length > 0;
-          const color = hasDeadzone ? '#f43f5e' : '#a855f7';
-          const cpIcon = L.divIcon({
-            className: 'custom-trip-cp-marker',
-            html: `<div style="
-              width: 12px;
-              height: 12px;
-              border-radius: 50%;
-              background: ${color};
-              box-shadow: 0 0 12px ${color};
-              filter: blur(0.5px);
-            "></div>`,
-            iconSize: [12, 12],
-            iconAnchor: [6, 6]
-          });
-          const cpMarker = L.marker(cp.coordinates, { icon: cpIcon }).bindPopup(
-            `<strong>${cp.name}</strong><br/>KM ${cp.kmMark}<br/>Smart: ${cp.carrierStrength.Smart}/5 • Globe: ${cp.carrierStrength.Globe}/5 • DITO: ${cp.carrierStrength.DITO}/5`
-          );
-          layers.addLayer(cpMarker);
+
+          if (hasDeadzone) {
+            const hazardIcon = L.divIcon({
+              className: 'deadzone-hazard-pin',
+              html: `<div style="
+                width: 22px;
+                height: 22px;
+                border-radius: 50%;
+                background: #f43f5e;
+                border: 2px solid #ffffff;
+                box-shadow: 0 0 16px rgba(244, 63, 94, 0.95);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #ffffff;
+                font-size: 11px;
+                animation: pulse 1.8s infinite;
+              ">⚠️</div>`,
+              iconSize: [22, 22],
+              iconAnchor: [11, 11]
+            });
+            const hazardMarker = L.marker(cp.coordinates, { icon: hazardIcon }).bindPopup(
+              `<div style="font-size: 12px; color: #111827; min-width: 170px;">
+                <strong style="color: #e11d48;">⚠️ ${cp.name} (KM ${cp.kmMark})</strong><br/>
+                <span style="font-size: 11px; color: #4b5563;">Potential ${cp.deadzoneCarriers.join(' & ')} dropzone.</span><br/>
+                <div style="margin-top: 4px; font-weight: 600;">
+                  Smart: ${cp.carrierStrength.Smart}/5 • Globe: ${cp.carrierStrength.Globe}/5 • DITO: ${cp.carrierStrength.DITO}/5
+                </div>
+              </div>`
+            );
+            layers.addLayer(hazardMarker);
+          } else {
+            const cpIcon = L.divIcon({
+              className: 'custom-trip-cp-marker',
+              html: `<div style="
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                background: #a855f7;
+                border: 2px solid #ffffff;
+                box-shadow: 0 0 10px #a855f7;
+              "></div>`,
+              iconSize: [12, 12],
+              iconAnchor: [6, 6]
+            });
+            const cpMarker = L.marker(cp.coordinates, { icon: cpIcon }).bindPopup(
+              `<div style="font-size: 12px; color: #111827;">
+                <strong>${cp.name} (KM ${cp.kmMark})</strong><br/>
+                Smart: ${cp.carrierStrength.Smart}/5 • Globe: ${cp.carrierStrength.Globe}/5 • DITO: ${cp.carrierStrength.DITO}/5
+              </div>`
+            );
+            layers.addLayer(cpMarker);
+          }
         });
 
         // Fit map bounds to encompass the entire route
         const bounds = L.latLngBounds(currentRoute.path);
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
       }
     }
-  }, [currentRoute, gpsStatus, plannerTab]);
+  }, [currentRoute]);
 
   const getCarrierBarColor = (score: number) => {
     if (score >= 4) return 'var(--neon-lime)';
     if (score === 3) return 'var(--primary)';
-    return 'var(--cyber-pink)';
+    return '#f43f5e';
   };
 
   // Filter suggestion list
@@ -313,39 +467,53 @@ export const TripModeView: React.FC = () => {
     destInput ? l.name.toLowerCase().includes(destInput.toLowerCase()) : true
   ).slice(0, 5);
 
+  // Compute live vehicle progress during simulation
+  const progressPercent = currentRoute.path.length > 0 
+    ? Math.min(100, Math.round((driveProgressIndex / (currentRoute.path.length - 1)) * 100))
+    : 0;
+  const currentKmSimulated = Math.round((progressPercent / 100) * currentRoute.distanceKm);
+  const currentSimCheckpoint = currentRoute.checkpoints.find(c => Math.abs(c.kmMark - currentKmSimulated) <= 25) || currentRoute.checkpoints[0];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* Hero Header */}
-      <div className="glass-panel glow-active" style={{ padding: '1.35rem', position: 'relative', overflow: 'hidden' }}>
+      
+      {/* 🚀 GOOGLE MAPS TRIP PLANNER HEADER */}
+      <div className="glass-panel" style={{
+        padding: 'clamp(1rem, 3.5vw, 1.4rem)',
+        position: 'relative',
+        overflow: 'hidden',
+        background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.08) 0%, rgba(20, 24, 33, 0.98) 100%)',
+        border: '1px solid rgba(56, 189, 248, 0.3)'
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
             <div style={{
               width: '38px',
               height: '38px',
               borderRadius: 'var(--radius-lg)',
-              background: 'linear-gradient(135deg, var(--primary-container) 0%, var(--electric-purple) 100%)',
-              boxShadow: 'var(--glow-active)',
+              background: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)',
+              boxShadow: '0 0 20px rgba(56, 189, 248, 0.4)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'var(--on-primary-container)',
+              color: '#ffffff',
               flexShrink: 0
             }}>
               <Navigation size={20} />
             </div>
             <div>
               <h2 style={{ fontFamily: 'var(--font-headline)', fontSize: '1.15rem', fontWeight: 800, color: '#ffffff' }}>
-                Trip Mode: Route Coverage Advisor
+                Trip Signal Navigator
               </h2>
-              <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                GPS DEADZONE & HIGHWAY SIGNAL PLANNER
+              <div style={{ fontSize: '0.72rem', color: '#38bdf8', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                GOOGLE MAPS-POWERED SIGNAL & DEADZONE FORECAST
               </div>
             </div>
           </div>
         </div>
 
-        <p style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)', lineHeight: 1.45 }}>
-          Plan your road trip or provincial commute. Set your starting point using your live GPS or custom address to detect cellular deadzones along expressways and mountain passes.
+        <p style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)', lineHeight: 1.45, margin: 0 }}>
+          Real highway routing across the Philippines. Forecast where Smart, Globe, and DITO will have high-speed 5G vs cellular deadzones before you drive.
         </p>
 
         {/* Mode Selector Tabs */}
@@ -359,7 +527,10 @@ export const TripModeView: React.FC = () => {
           border: '1px solid var(--glass-border)'
         }}>
           <button
-            onClick={() => setPlannerTab('custom')}
+            onClick={() => {
+              setPlannerTab('custom');
+              handleStopDrive();
+            }}
             style={{
               flex: 1,
               padding: '0.5rem 0.65rem',
@@ -381,7 +552,10 @@ export const TripModeView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setPlannerTab('popular')}
+            onClick={() => {
+              setPlannerTab('popular');
+              handleStopDrive();
+            }}
             style={{
               flex: 1,
               padding: '0.5rem 0.65rem',
@@ -399,12 +573,15 @@ export const TripModeView: React.FC = () => {
               transition: 'all 0.15s ease'
             }}
           >
-            <Compass size={14} /> Popular Expressways
+            <Compass size={14} /> Expressways
           </button>
 
           {savedRoutes.length > 0 && (
             <button
-              onClick={() => setPlannerTab('saved')}
+              onClick={() => {
+                setPlannerTab('saved');
+                handleStopDrive();
+              }}
               style={{
                 flex: 1,
                 padding: '0.5rem 0.65rem',
@@ -428,12 +605,12 @@ export const TripModeView: React.FC = () => {
         </div>
       </div>
 
-      {/* 1. CUSTOM ROUTE PLANNER VIEW */}
+      {/* 1. CUSTOM ROUTE PLANNER VIEW (Google Maps style inputs) */}
       {plannerTab === 'custom' && (
         <div className="glass-panel" style={{ padding: '1.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
-            <span className="font-label-caps" style={{ color: 'var(--primary)' }}>
-              PLAN CUSTOM ROAD TRIP
+            <span className="font-label-caps" style={{ color: '#38bdf8' }}>
+              PLAN NEW ROAD TRIP
             </span>
             <button
               onClick={handleSwapLocations}
@@ -453,11 +630,13 @@ export const TripModeView: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            {/* STARTING POINT INPUT */}
+            
+            {/* STARTING POINT INPUT (A) */}
             <div style={{ position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <MapPin size={13} color="var(--neon-lime)" /> Starting Point
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#22c55e', color: '#ffffff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800 }}>A</span>
+                  Starting Point (Origin)
                 </label>
 
                 {/* GPS Trigger Button */}
@@ -499,7 +678,7 @@ export const TripModeView: React.FC = () => {
                   if (gpsStatus === 'locked') setGpsStatus('idle');
                 }}
                 onFocus={() => setShowOriginSuggestions(true)}
-                placeholder="e.g. Current GPS, PITX, NAIA T3, Cubao..."
+                placeholder="e.g. Current GPS, PITX, NAIA T3, Cubao, Manila..."
                 className="input-field"
                 style={{
                   width: '100%',
@@ -512,16 +691,8 @@ export const TripModeView: React.FC = () => {
                 }}
               />
 
-              {/* GPS Error notification */}
               {gpsStatus === 'error' && gpsErrorMsg && (
-                <div style={{
-                  fontSize: '0.72rem',
-                  color: 'var(--cyber-pink)',
-                  marginTop: '0.3rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.3rem'
-                }}>
+                <div style={{ color: '#f87171', fontSize: '0.72rem', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   <AlertTriangle size={12} /> {gpsErrorMsg}
                 </div>
               )}
@@ -612,10 +783,11 @@ export const TripModeView: React.FC = () => {
               ))}
             </div>
 
-            {/* DESTINATION INPUT */}
+            {/* DESTINATION INPUT (B) */}
             <div style={{ position: 'relative', marginTop: '0.25rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.35rem' }}>
-                <MapPin size={13} color="var(--cyber-pink)" /> Destination
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
+                <span style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#ef4444', color: '#ffffff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800 }}>B</span>
+                Destination
               </label>
 
               <input
@@ -627,7 +799,7 @@ export const TripModeView: React.FC = () => {
                   setShowDestSuggestions(true);
                 }}
                 onFocus={() => setShowDestSuggestions(true)}
-                placeholder="e.g. Baguio City, Tagaytay, Batangas Port, La Union..."
+                placeholder="e.g. Baguio City, Tagaytay, Batangas Port, La Union, Moalboal..."
                 className="input-field"
                 style={{
                   width: '100%',
@@ -722,7 +894,7 @@ export const TripModeView: React.FC = () => {
               ))}
             </div>
 
-            {/* Analyze Button */}
+            {/* Generate Button */}
             <button
               onClick={handleAnalyzeCustomRoute}
               disabled={isAnalyzing || !originInput.trim() || !destInput.trim()}
@@ -742,7 +914,7 @@ export const TripModeView: React.FC = () => {
               }}
             >
               <Radio size={16} className={isAnalyzing ? 'animate-pulse' : ''} />
-              {isAnalyzing ? 'Analyzing Cell Towers & Terrain...' : '⚡ Generate Signal & Deadzone Forecast'}
+              {isAnalyzing ? 'Routing via OSRM Highway Engine...' : '⚡ Generate Road Trip Signal Forecast'}
             </button>
           </div>
         </div>
@@ -751,7 +923,7 @@ export const TripModeView: React.FC = () => {
       {/* 2. POPULAR PRESET ROUTES LIST */}
       {plannerTab === 'popular' && (
         <div className="glass-panel" style={{ padding: '1.25rem' }}>
-          <label className="font-label-caps" style={{ color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
+          <label className="font-label-caps" style={{ color: '#38bdf8', marginBottom: '0.75rem', display: 'block' }}>
             SELECT POPULAR EXPRESSWAY ROUTE:
           </label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
@@ -760,11 +932,14 @@ export const TripModeView: React.FC = () => {
               return (
                 <button
                   key={route.id}
-                  onClick={() => setSelectedRouteId(route.id)}
+                  onClick={() => {
+                    setSelectedRouteId(route.id);
+                    handleStopDrive();
+                  }}
                   style={{
-                    background: isSelected ? 'rgba(168, 85, 247, 0.15)' : 'var(--surface-container-low)',
-                    border: isSelected ? '1px solid var(--electric-purple)' : '1px solid var(--glass-border)',
-                    boxShadow: isSelected ? 'var(--glow-active)' : 'none',
+                    background: isSelected ? 'rgba(56, 189, 248, 0.15)' : 'var(--surface-container-low)',
+                    border: isSelected ? '1px solid #38bdf8' : '1px solid var(--glass-border)',
+                    boxShadow: isSelected ? '0 0 15px rgba(56, 189, 248, 0.25)' : 'none',
                     borderRadius: 'var(--radius-lg)',
                     padding: '0.75rem 1rem',
                     textAlign: 'left',
@@ -776,14 +951,14 @@ export const TripModeView: React.FC = () => {
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isSelected ? 'var(--primary)' : '#ffffff' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isSelected ? '#38bdf8' : '#ffffff' }}>
                       {route.name}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
                       {route.distanceKm} km • Est. {route.durationEst}
                     </div>
                   </div>
-                  {isSelected && <CheckCircle size={18} color="var(--primary)" />}
+                  {isSelected && <CheckCircle size={18} color="#38bdf8" />}
                 </button>
               );
             })}
@@ -794,7 +969,7 @@ export const TripModeView: React.FC = () => {
       {/* 3. SAVED CUSTOM ROUTES */}
       {plannerTab === 'saved' && (
         <div className="glass-panel" style={{ padding: '1.25rem' }}>
-          <label className="font-label-caps" style={{ color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
+          <label className="font-label-caps" style={{ color: '#38bdf8', marginBottom: '0.75rem', display: 'block' }}>
             YOUR SAVED ROAD TRIPS:
           </label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
@@ -804,8 +979,8 @@ export const TripModeView: React.FC = () => {
                 <div
                   key={route.id}
                   style={{
-                    background: isSelected ? 'rgba(168, 85, 247, 0.15)' : 'var(--surface-container-low)',
-                    border: isSelected ? '1px solid var(--electric-purple)' : '1px solid var(--glass-border)',
+                    background: isSelected ? 'rgba(56, 189, 248, 0.15)' : 'var(--surface-container-low)',
+                    border: isSelected ? '1px solid #38bdf8' : '1px solid var(--glass-border)',
                     borderRadius: 'var(--radius-lg)',
                     padding: '0.75rem 1rem',
                     display: 'flex',
@@ -814,10 +989,13 @@ export const TripModeView: React.FC = () => {
                   }}
                 >
                   <div
-                    onClick={() => setSelectedRouteId(route.id)}
+                    onClick={() => {
+                      setSelectedRouteId(route.id);
+                      handleStopDrive();
+                    }}
                     style={{ flex: 1, cursor: 'pointer' }}
                   >
-                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isSelected ? 'var(--primary)' : '#ffffff' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isSelected ? '#38bdf8' : '#ffffff' }}>
                       {route.name}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
@@ -826,7 +1004,7 @@ export const TripModeView: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {isSelected && <CheckCircle size={18} color="var(--primary)" />}
+                    {isSelected && <CheckCircle size={18} color="#38bdf8" />}
                     <button
                       onClick={() => handleDeleteSavedRoute(route.id)}
                       className="btn-icon"
@@ -848,17 +1026,67 @@ export const TripModeView: React.FC = () => {
         </div>
       )}
 
-      {/* LEAFLET INTERACTIVE ROUTE MAP */}
-      <div className="glass-panel" style={{ padding: '1rem', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-            <MapPin size={16} color="var(--electric-purple)" />
-            <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#ffffff' }}>
-              Interactive Route Signal Radar
-            </span>
+      {/* 🗺️ GOOGLE MAPS TRIP OVERVIEW & INTERACTIVE MAP */}
+      <div className="glass-panel" style={{ padding: '1rem', overflow: 'hidden', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+        
+        {/* Navigation Summary Bar (Google Maps style) */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+          marginBottom: '0.85rem',
+          paddingBottom: '0.75rem',
+          borderBottom: '1px solid var(--glass-border)'
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span style={{ fontSize: '1.2rem', fontWeight: 800, color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
+                {currentRoute.durationEst}
+              </span>
+              <span style={{ color: 'var(--on-surface-variant)', fontSize: '0.82rem' }}>
+                ({currentRoute.distanceKm} km)
+              </span>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--neon-lime)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <CheckCircle size={12} /> Fastest route via real-world highway network
+            </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            {/* Drive Preview Trigger */}
+            <button
+              onClick={handleToggleDrive}
+              className="btn btn-sm"
+              style={{
+                background: isDriving ? 'rgba(239, 68, 68, 0.2)' : 'linear-gradient(135deg, #0284c7, #38bdf8)',
+                color: isDriving ? '#f87171' : '#ffffff',
+                border: isDriving ? '1px solid #ef4444' : 'none',
+                borderRadius: 'var(--radius-full)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '0.35rem 0.75rem'
+              }}
+            >
+              {isDriving ? <Pause size={13} /> : <Play size={13} />}
+              {isDriving ? 'Pause Preview' : '🚗 Drive Preview'}
+            </button>
+
+            {isDriving && (
+              <button
+                onClick={() => setDriveSpeedMultiplier(prev => (prev === 1 ? 2 : prev === 2 ? 4 : 1))}
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.7rem', padding: '0.35rem 0.55rem' }}
+                title="Change drive simulation speed"
+              >
+                <FastForward size={12} /> {driveSpeedMultiplier}x
+              </button>
+            )}
+
             <button
               onClick={handleShareRoute}
               className="btn-icon"
@@ -881,12 +1109,68 @@ export const TripModeView: React.FC = () => {
           </div>
         </div>
 
+        {/* Live Drive HUD Overlay (when driving simulation is active) */}
+        {isDriving && (
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.95)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid #38bdf8',
+            borderRadius: 'var(--radius-lg)',
+            padding: '0.75rem 1rem',
+            marginBottom: '0.85rem',
+            boxShadow: '0 0 25px rgba(56, 189, 248, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: 'rgba(56, 189, 248, 0.2)',
+                border: '1px solid #38bdf8',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '15px'
+              }}>
+                🚗
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#ffffff', fontFamily: 'var(--font-mono)' }}>
+                  KM {currentKmSimulated} / {currentRoute.distanceKm} KM ({progressPercent}%)
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>
+                  Near: {currentSimCheckpoint.name}
+                </div>
+              </div>
+            </div>
+
+            {/* Live Telemetry Bars */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {(['Smart', 'Globe', 'DITO'] as TelcoProvider[]).map(t => {
+                const s = currentSimCheckpoint.carrierStrength[t] || 3;
+                const col = getCarrierBarColor(s);
+                return (
+                  <div key={t} style={{ background: 'rgba(255,255,255,0.06)', padding: '0.25rem 0.5rem', borderRadius: 'var(--radius-sm)', textAlign: 'center', minWidth: '45px' }}>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--on-surface-variant)' }}>{t}</div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: col, fontFamily: 'var(--font-mono)' }}>{s}/5</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Leaflet Map Box */}
         <div
           ref={mapContainerRef}
           style={{
             width: '100%',
-            height: '240px',
+            height: '280px',
             borderRadius: 'var(--radius-lg)',
             overflow: 'hidden',
             border: '1px solid var(--glass-border)',
@@ -897,89 +1181,121 @@ export const TripModeView: React.FC = () => {
         {/* Map Legend */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.85rem', marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} /> Origin
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e' }} /> Origin (A)
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f472b6' }} /> Destination
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }} /> Destination (B)
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#a855f7' }} /> Checkpoint
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#38bdf8' }} /> Real Highway Route
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f43f5e' }} /> Deadzone Risk
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f43f5e' }} /> Deadzone Hazard
           </span>
         </div>
       </div>
 
-      {/* TRIP STATS & ADVISORY ALERT BANNER */}
+      {/* TRIP ADVISORY ALERT BANNER */}
       <div className="glass-panel" style={{
-        padding: '1.25rem',
+        padding: '1.15rem',
         display: 'flex',
         alignItems: 'flex-start',
         gap: '0.85rem',
-        borderColor: 'rgba(221, 183, 255, 0.3)'
+        border: '1px solid rgba(56, 189, 248, 0.3)',
+        background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.05) 0%, rgba(20, 24, 33, 0.95) 100%)'
       }}>
-        <Compass size={24} color="var(--primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
+        <ShieldAlert size={22} color="#38bdf8" style={{ flexShrink: 0, marginTop: '2px' }} />
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <div style={{ fontFamily: 'var(--font-headline)', fontWeight: 700, fontSize: '0.95rem', color: '#ffffff' }}>
+            <div style={{ fontFamily: 'var(--font-headline)', fontWeight: 700, fontSize: '0.92rem', color: '#ffffff' }}>
               {currentRoute.name}
             </div>
             <span className="font-label-caps" style={{
-              background: 'rgba(168, 85, 247, 0.2)',
-              color: 'var(--primary)',
+              background: 'rgba(56, 189, 248, 0.2)',
+              color: '#38bdf8',
               padding: '0.15rem 0.5rem',
-              borderRadius: 'var(--radius-full)'
+              borderRadius: 'var(--radius-full)',
+              fontSize: '10px'
             }}>
               {currentRoute.distanceKm} KM • {currentRoute.durationEst}
             </span>
           </div>
-          <p style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)', marginTop: '0.45rem', lineHeight: 1.45 }}>
+          <p style={{ fontSize: '0.76rem', color: 'var(--on-surface-variant)', marginTop: '0.35rem', lineHeight: 1.45, margin: 0 }}>
             {currentRoute.summaryAdvisory}
           </p>
         </div>
       </div>
 
-      {/* ROUTE CHECKPOINTS BREAKDOWN */}
+      {/* 🧭 GOOGLE MAPS-STYLE TURN-BY-TURN CORRIDOR CHECKPOINTS */}
       <div className="glass-panel" style={{ padding: '1.35rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: '1.05rem', fontWeight: 700, color: '#ffffff' }}>
-            Signal Strength by Checkpoint ({currentRoute.checkpoints.length} Zones)
+            Turn-by-Turn Signal Forecast ({currentRoute.checkpoints.length} Corridors)
           </h3>
           <span style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
-            Carrier Ratings / 5
+            Tap milestone to fly map
           </span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           {currentRoute.checkpoints.map((cp, idx) => {
             const hasDeadzone = cp.deadzoneCarriers && cp.deadzoneCarriers.length > 0;
+            const isOrigin = idx === 0;
+            const isDest = idx === currentRoute.checkpoints.length - 1;
 
             return (
               <div
                 key={idx}
+                onClick={() => handleFlyToCheckpoint(cp.coordinates, idx)}
                 style={{
                   background: 'var(--surface-container-low)',
                   borderRadius: 'var(--radius-lg)',
                   padding: '1rem',
-                  border: hasDeadzone ? '1px solid rgba(244, 114, 182, 0.35)' : '1px solid var(--glass-border)',
+                  border: hasDeadzone 
+                    ? '1px solid rgba(244, 63, 94, 0.4)' 
+                    : activeCheckpointIndex === idx 
+                    ? '1px solid #38bdf8' 
+                    : '1px solid var(--glass-border)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
                   position: 'relative'
                 }}
+                onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-1px)')}
+                onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                      <span className="font-label-caps" style={{
-                        background: 'rgba(255, 255, 255, 0.08)',
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: 'var(--radius-sm)',
-                        color: 'var(--primary)'
-                      }}>
-                        KM {cp.kmMark}
-                      </span>
-                      <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#ffffff' }}>
-                        {cp.name}
-                      </span>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: isOrigin ? '#22c55e' : isDest ? '#ef4444' : hasDeadzone ? '#f43f5e' : '#38bdf8',
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      flexShrink: 0
+                    }}>
+                      {isOrigin ? 'A' : isDest ? 'B' : idx}
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                        <span className="font-label-caps" style={{
+                          background: 'rgba(255, 255, 255, 0.08)',
+                          padding: '0.12rem 0.45rem',
+                          borderRadius: 'var(--radius-sm)',
+                          color: '#38bdf8',
+                          fontSize: '10px'
+                        }}>
+                          KM {cp.kmMark}
+                        </span>
+                        <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#ffffff' }}>
+                          {cp.name}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -987,8 +1303,9 @@ export const TripModeView: React.FC = () => {
                     <span style={{
                       fontSize: '0.68rem',
                       fontWeight: 700,
-                      color: 'var(--cyber-pink)',
-                      background: 'rgba(244, 114, 182, 0.15)',
+                      color: '#f87171',
+                      background: 'rgba(239, 68, 68, 0.18)',
+                      border: '1px solid rgba(239, 68, 68, 0.4)',
                       padding: '0.2rem 0.55rem',
                       borderRadius: 'var(--radius-full)',
                       display: 'flex',
@@ -1001,6 +1318,7 @@ export const TripModeView: React.FC = () => {
                   )}
                 </div>
 
+                {/* Carrier Signal Gauge Bars */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.55rem', margin: '0.85rem 0' }}>
                   {(['Smart', 'Globe', 'DITO'] as TelcoProvider[]).map(telco => {
                     const score = cp.carrierStrength[telco] || 3;
@@ -1024,7 +1342,7 @@ export const TripModeView: React.FC = () => {
                   })}
                 </div>
 
-                <div style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)' }}>
+                <div style={{ fontSize: '0.74rem', color: 'var(--on-surface-variant)', lineHeight: 1.4 }}>
                   💡 <span style={{ fontWeight: 500 }}>{cp.recommendation}</span>
                 </div>
               </div>

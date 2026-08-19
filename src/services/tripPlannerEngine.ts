@@ -251,56 +251,114 @@ function evaluateCheckpointSignal(
   };
 }
 
-// Generate a full custom route with checkpoints and signal analysis
-export function generateCustomTripRoute(
+// Generate a full custom route with real-world OSRM highway geometry and signal forecast
+export async function generateCustomTripRoute(
   originName: string,
   originCoords: [number, number],
   destName: string,
   destCoords: [number, number]
-): TripRoute {
-  const straightDist = calculateDistanceKm(originCoords, destCoords);
-  // Realistic road distance ~ 1.25x - 1.35x straight line
-  const distanceKm = Math.max(5, Math.round(straightDist * 1.28));
+): Promise<TripRoute> {
+  let roadPath: [number, number][] = [];
+  let distanceKm = 0;
+  let durationEst = '';
+  const roadSteps: { name: string; coords: [number, number]; distanceKm: number }[] = [];
 
-  // Estimate travel duration
-  let hours = 0;
-  let mins = 0;
-  if (distanceKm < 30) {
-    // Heavy urban transit ~ 22 km/h
-    mins = Math.round((distanceKm / 22) * 60);
-  } else if (distanceKm < 100) {
-    // Mixed expressway & arterial ~ 45 km/h
-    mins = Math.round((distanceKm / 45) * 60);
-  } else {
-    // Long-distance highway ~ 58 km/h
-    mins = Math.round((distanceKm / 58) * 60);
+  // 1. Fetch Real-World Driving Road Geometry via OSRM Public Routing API
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${originCoords[1]},${originCoords[0]};${destCoords[1]},${destCoords[0]}?overview=full&geometries=geojson&steps=true`;
+    const res = await fetch(osrmUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.routes && data.routes.length > 0) {
+        const primaryRoute = data.routes[0];
+        
+        // Exact real road distance and driving duration from highway engine
+        distanceKm = Math.max(2, Math.round(primaryRoute.distance / 1000));
+        const totalSeconds = Math.round(primaryRoute.duration);
+        const hours = Math.floor(totalSeconds / 3600);
+        const mins = Math.round((totalSeconds % 3600) / 60);
+        durationEst = hours > 0 ? `${hours} hr${hours > 1 ? 's' : ''} ${mins > 0 ? `${mins} min` : ''}` : `${mins} min`;
+
+        // Extract detailed high-definition highway coordinates [lat, lng]
+        if (primaryRoute.geometry && primaryRoute.geometry.coordinates) {
+          roadPath = primaryRoute.geometry.coordinates.map((pt: [number, number]) => [pt[1], pt[0]] as [number, number]);
+        }
+
+        // Extract road milestone steps from turn-by-turn navigation
+        if (primaryRoute.legs && primaryRoute.legs[0] && primaryRoute.legs[0].steps) {
+          let accumulatedMeters = 0;
+          for (const step of primaryRoute.legs[0].steps) {
+            accumulatedMeters += step.distance || 0;
+            if (step.name && step.name.trim().length > 2 && step.maneuver?.location) {
+              const stepCoords: [number, number] = [step.maneuver.location[1], step.maneuver.location[0]];
+              roadSteps.push({
+                name: step.name.trim(),
+                coords: stepCoords,
+                distanceKm: Math.round(accumulatedMeters / 1000)
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Offline or network error fallback
   }
-  hours = Math.floor(mins / 60);
-  mins = mins % 60;
-  const durationEst = hours > 0 ? `${hours} hr${hours > 1 ? 's' : ''} ${mins > 0 ? `${mins} mins` : ''}` : `${mins} mins`;
 
-  // Number of checkpoints based on distance
-  const numSteps = distanceKm > 150 ? 6 : distanceKm > 50 ? 5 : 4;
-  const path = interpolatePath(originCoords, destCoords, numSteps + 2);
+  // Fallback if OSRM was unavailable or offline
+  if (roadPath.length === 0) {
+    const straightDist = calculateDistanceKm(originCoords, destCoords);
+    distanceKm = Math.max(5, Math.round(straightDist * 1.28));
 
+    let mins = 0;
+    if (distanceKm < 30) {
+      mins = Math.round((distanceKm / 22) * 60);
+    } else if (distanceKm < 100) {
+      mins = Math.round((distanceKm / 45) * 60);
+    } else {
+      mins = Math.round((distanceKm / 58) * 60);
+    }
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    durationEst = hours > 0 ? `${hours} hr${hours > 1 ? 's' : ''} ${remMins > 0 ? `${remMins} min` : ''}` : `${remMins} min`;
+
+    const numSteps = distanceKm > 150 ? 8 : distanceKm > 50 ? 6 : 5;
+    roadPath = interpolatePath(originCoords, destCoords, numSteps + 4);
+  }
+
+  // 2. Generate Checkpoint Milestones along the real highway path
+  const numCheckpoints = distanceKm > 200 ? 7 : distanceKm > 80 ? 5 : distanceKm > 30 ? 4 : 3;
   const checkpoints: RouteCheckpoint[] = [];
 
-  for (let i = 0; i < numSteps; i++) {
-    const fraction = i / (numSteps - 1);
-    const coords = path[Math.floor(fraction * (path.length - 1))];
+  for (let i = 0; i < numCheckpoints; i++) {
+    const fraction = i / (numCheckpoints - 1);
+    const pathIndex = Math.min(roadPath.length - 1, Math.floor(fraction * (roadPath.length - 1)));
+    const coords = roadPath[pathIndex];
     const kmMark = Math.round(fraction * distanceKm);
 
+    // Identify highway / corridor name
     let stepName = '';
     if (i === 0) {
-      stepName = `Origin: ${originName}`;
-    } else if (i === numSteps - 1) {
-      stepName = `Destination: ${destName}`;
-    } else if (fraction < 0.4) {
-      stepName = `Highway Junction / Departure Corridor`;
-    } else if (fraction < 0.7) {
-      stepName = `Mid-Route Provincial / Transit Corridor`;
+      stepName = `Start: ${originName}`;
+    } else if (i === numCheckpoints - 1) {
+      stepName = `Arrival: ${destName}`;
     } else {
-      stepName = `Approach & City Entry Zone`;
+      // Check if there is a matching OSRM road step nearby
+      const matchingStep = roadSteps.find(s => Math.abs(s.distanceKm - kmMark) <= Math.max(5, distanceKm * 0.15));
+      if (matchingStep) {
+        stepName = `${matchingStep.name} Corridor`;
+      } else if (fraction < 0.35) {
+        stepName = `Expressway Departure Junction`;
+      } else if (fraction < 0.7) {
+        stepName = `Mid-Route Provincial Highway Segment`;
+      } else {
+        stepName = `Approach & City Arterial Gateway`;
+      }
     }
 
     const { strength, deadzones, recommendation } = evaluateCheckpointSignal(
@@ -319,16 +377,16 @@ export function generateCustomTripRoute(
     });
   }
 
-  // Determine summary advisory
+  // 3. Generate Overall Route Advisory & Signal Safety
   const hasDitoDeadzone = checkpoints.some(c => c.deadzoneCarriers.includes('DITO'));
   const hasGlobeDeadzone = checkpoints.some(c => c.deadzoneCarriers.includes('Globe'));
   const hasSmartDeadzone = checkpoints.some(c => c.deadzoneCarriers.includes('Smart'));
 
   let summaryAdvisory = `Continuous 5G/4G coverage across ${distanceKm} km. Smart and Globe provide steady signals for live Waze & Google Maps telemetry.`;
   if (hasDitoDeadzone && !hasSmartDeadzone) {
-    summaryAdvisory = `Smart and Globe hold steady 5G along the route. DITO signals may drop to 3G/deadzone during mid-transit segments. Keep your primary Smart/Globe SIM active for navigation.`;
+    summaryAdvisory = `Smart and Globe maintain strong 5G throughout. DITO signals may drop to 3G/deadzone along mountain & valley segments. Keep your primary Smart or Globe SIM active.`;
   } else if (hasGlobeDeadzone) {
-    summaryAdvisory = `Smart demonstrates the strongest line-of-sight signal across this corridor. Top up regular load or data promo before starting your trip.`;
+    summaryAdvisory = `Smart demonstrates the strongest line-of-sight signal across this corridor. Top up regular load or data promo before departure.`;
   }
 
   const customId = `custom-route-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -340,7 +398,7 @@ export function generateCustomTripRoute(
     destination: destName,
     distanceKm,
     durationEst,
-    path,
+    path: roadPath,
     checkpoints,
     summaryAdvisory
   };

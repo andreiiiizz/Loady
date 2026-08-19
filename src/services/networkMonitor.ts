@@ -14,9 +14,16 @@ export interface NetworkStatus {
   isWifi: boolean;
   isCellular: boolean;
   wifiShieldActive: boolean; // Manual or auto Wi-Fi zero-decay protection
+  isApiSupported: boolean;   // Whether Network Information API is natively supported
+  isIosDevice: boolean;      // True if running on iOS (iPhone / iPad)
 }
 
 const WIFI_SHIELD_STORAGE_KEY = 'loady_wifi_shield_active';
+
+export function isIos(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
 
 export function loadWifiShield(): boolean {
   try {
@@ -44,6 +51,7 @@ export function saveWifiShield(active: boolean): void {
 export function getLiveNetworkStatus(): NetworkStatus {
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
   const wifiShieldActive = loadWifiShield();
+  const isIosDevice = isIos();
 
   // @ts-expect-error - navigator.connection is experimental Network Information API
   const conn = typeof navigator !== 'undefined' ? (navigator.connection || navigator.mozConnection || navigator.webkitConnection) : null;
@@ -66,7 +74,6 @@ export function getLiveNetworkStatus(): NetworkStatus {
     } else if (rawType === 'none') {
       connectionType = 'none';
     } else {
-      // If connection type is not explicitly exposed (common on some Chromium builds)
       connectionType = 'unknown';
     }
 
@@ -87,7 +94,9 @@ export function getLiveNetworkStatus(): NetworkStatus {
       isOnline,
       isWifi,
       isCellular,
-      wifiShieldActive
+      wifiShieldActive,
+      isApiSupported: true,
+      isIosDevice
     };
   }
 
@@ -104,7 +113,9 @@ export function getLiveNetworkStatus(): NetworkStatus {
     isOnline,
     isWifi,
     isCellular,
-    wifiShieldActive
+    wifiShieldActive,
+    isApiSupported: false,
+    isIosDevice
   };
 }
 
