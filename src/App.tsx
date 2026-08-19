@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { SimCard, CoverageReport, AuthUser } from './types';
 import {
   loadSims,
@@ -16,16 +16,44 @@ import {
 } from './services/storage';
 import { applyAutoDecay, calculateForecast } from './services/burnRateEngine';
 
-// Components
+// Critical Instant Components (First Contentful Paint)
 import { PhoneAuthView } from './components/PhoneAuthView';
 import { Navbar } from './components/Navbar';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { BurnRateCard } from './components/BurnRateCard';
-import { AutoBalanceTracker } from './components/AutoBalanceTracker';
-import { CoverageMap } from './components/CoverageMap';
-import { CoverageReportModal } from './components/CoverageReportModal';
-import { TripModeView } from './components/TripModeView';
-import { SettingsModal } from './components/SettingsModal';
+
+// Lazy Loaded Secondary Heavy Modules (Leaflet Maps, Trip Planner, Modals)
+const AutoBalanceTracker = React.lazy(() =>
+  import('./components/AutoBalanceTracker').then(m => ({ default: m.AutoBalanceTracker }))
+);
+const CoverageMap = React.lazy(() =>
+  import('./components/CoverageMap').then(m => ({ default: m.CoverageMap }))
+);
+const TripModeView = React.lazy(() =>
+  import('./components/TripModeView').then(m => ({ default: m.TripModeView }))
+);
+const CoverageReportModal = React.lazy(() =>
+  import('./components/CoverageReportModal').then(m => ({ default: m.CoverageReportModal }))
+);
+const SettingsModal = React.lazy(() =>
+  import('./components/SettingsModal').then(m => ({ default: m.SettingsModal }))
+);
+
+const TabLoadingFallback = () => (
+  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '220px', flexDirection: 'column', gap: '0.75rem' }}>
+    <div style={{
+      width: '28px',
+      height: '28px',
+      borderRadius: '50%',
+      border: '2px solid rgba(168, 85, 247, 0.2)',
+      borderTopColor: 'var(--primary)',
+      animation: 'spin 0.7s linear infinite'
+    }} />
+    <span style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
+      Loading module...
+    </span>
+  </div>
+);
 
 export const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(loadAuthUser());
@@ -212,22 +240,28 @@ export const App: React.FC = () => {
         )}
 
         {currentTab === 'autosync' && (
-          <AutoBalanceTracker
-            sim={activeSim}
-            onUpdateSim={handleUpdateActiveSim}
-          />
+          <Suspense fallback={<TabLoadingFallback />}>
+            <AutoBalanceTracker
+              sim={activeSim}
+              onUpdateSim={handleUpdateActiveSim}
+            />
+          </Suspense>
         )}
 
         {currentTab === 'coverage' && (
-          <CoverageMap
-            reports={coverageReports}
-            onOpenReportModal={() => setIsReportModalOpen(true)}
-            onUpvoteReport={handleUpvoteReport}
-          />
+          <Suspense fallback={<TabLoadingFallback />}>
+            <CoverageMap
+              reports={coverageReports}
+              onOpenReportModal={() => setIsReportModalOpen(true)}
+              onUpvoteReport={handleUpvoteReport}
+            />
+          </Suspense>
         )}
 
         {currentTab === 'trip' && (
-          <TripModeView />
+          <Suspense fallback={<TabLoadingFallback />}>
+            <TripModeView />
+          </Suspense>
         )}
 
         {currentTab === 'promos' && (
@@ -243,29 +277,37 @@ export const App: React.FC = () => {
       />
 
       {/* Coverage Report Modal */}
-      <CoverageReportModal
-        isOpen={isReportModalOpen}
-        onClose={() => setIsReportModalOpen(false)}
-        onSubmitReport={handleSubmitReport}
-        defaultTelco={activeSim.telco}
-      />
+      {isReportModalOpen && (
+        <Suspense fallback={null}>
+          <CoverageReportModal
+            isOpen={isReportModalOpen}
+            onClose={() => setIsReportModalOpen(false)}
+            onSubmitReport={handleSubmitReport}
+            defaultTelco={activeSim.telco}
+          />
+        </Suspense>
+      )}
 
       {/* Settings & Multi-SIM Modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        sims={sims}
-        activeSim={activeSim}
-        onSelectSim={handleSelectSim}
-        onUpdateSim={handleUpdateActiveSim}
-        onAddSim={handleAddSim}
-        onDeleteSim={handleDeleteSim}
-        userStats={userStats}
-        theme={theme}
-        onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        authUser={authUser}
-        onLogout={handleLogout}
-      />
+      {isSettingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            sims={sims}
+            activeSim={activeSim}
+            onSelectSim={handleSelectSim}
+            onUpdateSim={handleUpdateActiveSim}
+            onAddSim={handleAddSim}
+            onDeleteSim={handleDeleteSim}
+            userStats={userStats}
+            theme={theme}
+            onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            authUser={authUser}
+            onLogout={handleLogout}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

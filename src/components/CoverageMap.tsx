@@ -310,7 +310,7 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
       <div
         className="glass-panel"
         style={{
-          height: 'clamp(420px, 66vh, 540px)',
+          height: 'clamp(320px, 50vh, 420px)',
           width: '100%',
           position: 'relative',
           overflow: 'hidden'

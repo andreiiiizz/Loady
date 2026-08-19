@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Sora:wght@400;600;700;800&display=swap');
-
 :root {
   --font-headline: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -504,6 +502,43 @@ body {
 
 .leaflet-popup-tip {
   background: #181b25 !important;
+}
+
+/* Leaflet Zoom Control (+ and -) Semi-Transparent Dark Glass Styling */
+.leaflet-bar {
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-md) !important;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.leaflet-bar a,
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+  background: rgba(16, 19, 28, 0.55) !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  transition: all 0.2s ease;
+  width: 30px !important;
+  height: 30px !important;
+  line-height: 28px !important;
+  font-size: 16px !important;
+}
+
+.leaflet-bar a:last-child {
+  border-bottom: none !important;
+}
+
+.leaflet-bar a:hover {
+  background: rgba(30, 35, 48, 0.85) !important;
+  color: #ffffff !important;
+}
+
+.leaflet-bar a.leaflet-disabled {
+  background: rgba(16, 19, 28, 0.3) !important;
+  color: rgba(255, 255, 255, 0.2) !important;
 }
 
 /* Hide all Leaflet / OSM / Carto watermark badges */

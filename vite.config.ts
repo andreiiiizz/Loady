@@ -3,32 +3,43 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  server: {
+    host: true, // Bind to 0.0.0.0 for phone/mobile access over Wi-Fi
+    port: 5173
+  },
+  preview: {
+    host: true,
+    port: 4173
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}']
+      },
       manifest: {
-        name: 'LoadWise - Philippine Prepaid Burn-Rate & Coverage',
-        short_name: 'LoadWise',
+        name: 'Loady - Philippine Prepaid Companion',
+        short_name: 'Loady',
         description: 'Prepaid load burn-rate forecaster and crowd-sourced signal coverage for Globe, Smart, DITO, TM, TNT, and GOMO.',
-        theme_color: '#0a0f1d',
-        background_color: '#0a0f1d',
+        theme_color: '#10131c',
+        background_color: '#10131c',
         display: 'standalone',
-        orientation: 'portrait',
-        icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          }
-        ]
+        orientation: 'portrait'
       }
     })
-  ]
+  ],
+  build: {
+    target: 'esnext',
+    cssCodeSplit: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-leaflet': ['leaflet'],
+          'vendor-icons': ['lucide-react']
+        }
+      }
+    }
+  }
 });
