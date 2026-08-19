@@ -15,36 +15,36 @@
   --surface-container: #1c1f29;
   --surface-container-high: #272a33;
   --surface-container-highest: #32343f;
-  
+
   --on-surface: #e0e2ef;
   --on-surface-variant: #cfc2d6;
   --outline: #988d9f;
   --outline-variant: #4d4354;
-  
+
   /* Signature Cyber Neons */
   --primary: #ddb7ff;
   --on-primary: #490080;
   --primary-container: #b76dff;
   --on-primary-container: #400071;
   --inverse-primary: #842bd2;
-  
+
   --electric-purple: #A855F7;
   --cyber-pink: #F472B6;
   --secondary: #ffafd3;
   --secondary-container: #85145a;
-  
+
   --neon-lime: #4ADE80;
   --tertiary: #4de082;
   --tertiary-container: #00a755;
-  
+
   --error: #ffb4ab;
   --error-container: #93000a;
-  
+
   /* Translucent Glass Surfaces */
   --glass-surface: rgba(255, 255, 255, 0.03);
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-blur: blur(16px);
-  
+
   /* Luminescent Glows */
   --glow-active: 0 0 16px rgba(168, 85, 247, 0.28);
   --glow-success: 0 0 12px rgba(74, 222, 128, 0.45);
@@ -67,19 +67,21 @@
   --surface-container: #eef0f8;
   --surface-container-high: #e2e5f0;
   --surface-container-highest: #d5d9e8;
-  
+
   --on-surface: #10131c;
   --on-surface-variant: #565063;
   --outline: #7f7588;
   --outline-variant: #cac2d3;
-  
+
   --glass-surface: rgba(255, 255, 255, 0.85);
   --glass-border: rgba(0, 0, 0, 0.08);
   --glow-active: 0 0 16px rgba(168, 85, 247, 0.18);
 }
 
 /* Reset */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -265,12 +267,41 @@ body {
   font-family: var(--font-mono);
 }
 
-.badge-smart { background: rgba(74, 222, 128, 0.12); color: var(--neon-lime); border: 1px solid rgba(74, 222, 128, 0.3); }
-.badge-globe { background: rgba(168, 85, 247, 0.15); color: var(--primary); border: 1px solid rgba(168, 85, 247, 0.35); }
-.badge-dito  { background: rgba(244, 114, 182, 0.15); color: var(--cyber-pink); border: 1px solid rgba(244, 114, 182, 0.35); }
-.badge-gomo  { background: rgba(221, 183, 255, 0.15); color: var(--primary); border: 1px solid rgba(221, 183, 255, 0.35); }
-.badge-tm    { background: rgba(249, 115, 22, 0.12); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
-.badge-tnt   { background: rgba(250, 204, 21, 0.12); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.3); }
+.badge-smart {
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--neon-lime);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.badge-globe {
+  background: rgba(168, 85, 247, 0.15);
+  color: var(--primary);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.badge-dito {
+  background: rgba(244, 114, 182, 0.15);
+  color: var(--cyber-pink);
+  border: 1px solid rgba(244, 114, 182, 0.35);
+}
+
+.badge-gomo {
+  background: rgba(221, 183, 255, 0.15);
+  color: var(--primary);
+  border: 1px solid rgba(221, 183, 255, 0.35);
+}
+
+.badge-tm {
+  background: rgba(249, 115, 22, 0.12);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+.badge-tnt {
+  background: rgba(250, 204, 21, 0.12);
+  color: #facc15;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+}
 
 .badge-5g {
   background: linear-gradient(135deg, var(--neon-lime), #06b6d4);
@@ -435,13 +466,23 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
 }
 
 /* Leaflet Custom Overrides */
@@ -479,16 +520,32 @@ body {
   overflow: hidden !important;
 }
 
+/* Dynamic Geographic Signal Radar Circles - Luminous & Translucent */
+path.coverage-radar-aura,
+path.coverage-radar-core {
+  cursor: pointer;
+  mix-blend-mode: screen;
+  transition: fill-opacity 0.2s ease, filter 0.2s ease, stroke 0.2s ease;
+}
+
+/* Highlighted ONLY when area is selected / clicked */
+path.coverage-radar-aura.selected,
+path.coverage-radar-core.selected {
+  filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.8)) brightness(1.6);
+}
+
 /* Storm Doppler Radar Animations */
 @keyframes radarPulseRed {
   0% {
     transform: scale(0.95);
     opacity: 0.9;
   }
+
   50% {
     transform: scale(1.12);
     opacity: 1;
   }
+
   100% {
     transform: scale(0.95);
     opacity: 0.9;
@@ -500,10 +557,12 @@ body {
     transform: scale(0.96);
     opacity: 0.85;
   }
+
   50% {
     transform: scale(1.08);
     opacity: 0.98;
   }
+
   100% {
     transform: scale(0.96);
     opacity: 0.85;
@@ -515,10 +574,12 @@ body {
     transform: scale(0.97);
     opacity: 0.75;
   }
+
   50% {
     transform: scale(1.05);
     opacity: 0.9;
   }
+
   100% {
     transform: scale(0.97);
     opacity: 0.75;

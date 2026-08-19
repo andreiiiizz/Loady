@@ -8,6 +8,7 @@ interface SettingsModalProps {
   onClose: () => void;
   sims: SimCard[];
   activeSim: SimCard;
+  onSelectSim?: (simId: string) => void;
   onUpdateSim: (updatedSim: SimCard) => void;
   onAddSim: (newSim: SimCard) => void;
   onDeleteSim: (simId: string) => void;
@@ -23,6 +24,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   sims,
   activeSim,
+  onSelectSim,
   onUpdateSim,
   onAddSim,
   onDeleteSim,
@@ -324,7 +326,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     boxShadow: sim.id === activeSim.id ? 'var(--glow-active)' : 'none'
                   }}
                 >
-                  <div>
+                  <div
+                    onClick={() => onSelectSim && onSelectSim(sim.id)}
+                    style={{ flex: 1, cursor: onSelectSim && sim.id !== activeSim.id ? 'pointer' : 'default' }}
+                    title={sim.id !== activeSim.id ? 'Click to switch active SIM' : 'Currently active SIM'}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                       <span className={`badge badge-${sim.telco.toLowerCase()}`}>
                         {sim.telco}
@@ -333,8 +339,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         {sim.name}
                       </span>
                       {sim.id === activeSim.id && (
-                        <span style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                          (ACTIVE)
+                        <span style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 700, fontFamily: 'var(--font-mono)', background: 'rgba(168, 85, 247, 0.15)', padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-sm)' }}>
+                          ACTIVE
                         </span>
                       )}
                     </div>
@@ -343,16 +349,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {sims.length > 1 && (
-                    <button
-                      onClick={() => onDeleteSim(sim.id)}
-                      className="btn-icon"
-                      style={{ padding: '0.4rem', color: 'var(--cyber-pink)', background: 'transparent', border: 'none', cursor: 'pointer' }}
-                      title="Remove SIM"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    {sim.id !== activeSim.id && onSelectSim && (
+                      <button
+                        onClick={() => onSelectSim(sim.id)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem' }}
+                      >
+                        Set Active
+                      </button>
+                    )}
+
+                    {sims.length > 1 && (
+                      <button
+                        onClick={() => onDeleteSim(sim.id)}
+                        className="btn-icon"
+                        style={{ padding: '0.4rem', color: 'var(--cyber-pink)', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                        title="Remove SIM"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

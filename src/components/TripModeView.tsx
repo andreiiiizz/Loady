@@ -225,81 +225,65 @@ export const TripModeView: React.FC = () => {
         layers.addLayer(polylineGlow);
         layers.addLayer(polylineCore);
 
-        // Add Start Pin
+        // Add Start Color Glow Dot
         const startCoord = currentRoute.path[0];
         const isGpsStart = gpsStatus === 'locked' && plannerTab === 'custom';
+        const startColor = isGpsStart ? '#38bdf8' : '#4ade80';
         const startIcon = L.divIcon({
           className: 'custom-trip-marker',
           html: `<div style="
-            width: 22px;
-            height: 22px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
-            background: ${isGpsStart ? '#38bdf8' : '#4ade80'};
-            border: 2px solid #ffffff;
-            box-shadow: 0 0 14px ${isGpsStart ? 'rgba(56, 189, 248, 0.9)' : 'rgba(74, 222, 128, 0.9)'};
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            color: #000;
-            font-weight: 800;
-          ">A</div>`,
-          iconSize: [22, 22],
-          iconAnchor: [11, 11]
+            background: ${startColor};
+            box-shadow: 0 0 16px ${startColor};
+            filter: blur(0.5px);
+          "></div>`,
+          iconSize: [16, 16],
+          iconAnchor: [8, 8]
         });
         const startMarker = L.marker(startCoord, { icon: startIcon }).bindPopup(
           `<strong>Starting Point:</strong><br/>${currentRoute.origin}`
         );
         layers.addLayer(startMarker);
 
-        // Add Destination Pin
+        // Add Destination Color Glow Dot
         const endCoord = currentRoute.path[currentRoute.path.length - 1];
         const endIcon = L.divIcon({
           className: 'custom-trip-marker',
           html: `<div style="
-            width: 22px;
-            height: 22px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
             background: #f472b6;
-            border: 2px solid #ffffff;
-            box-shadow: 0 0 14px rgba(244, 114, 182, 0.9);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            color: #000;
-            font-weight: 800;
-          ">B</div>`,
-          iconSize: [22, 22],
-          iconAnchor: [11, 11]
+            box-shadow: 0 0 16px rgba(244, 114, 182, 0.95);
+            filter: blur(0.5px);
+          "></div>`,
+          iconSize: [16, 16],
+          iconAnchor: [8, 8]
         });
         const endMarker = L.marker(endCoord, { icon: endIcon }).bindPopup(
           `<strong>Destination:</strong><br/>${currentRoute.destination}`
         );
         layers.addLayer(endMarker);
 
-        // Add Checkpoint Markers along the way
+        // Add Checkpoint Color Glow Dots along the way
         currentRoute.checkpoints.forEach((cp, idx) => {
           if (idx === 0 || idx === currentRoute.checkpoints.length - 1) return;
           const hasDeadzone = cp.deadzoneCarriers && cp.deadzoneCarriers.length > 0;
+          const color = hasDeadzone ? '#f43f5e' : '#a855f7';
           const cpIcon = L.divIcon({
             className: 'custom-trip-cp-marker',
             html: `<div style="
-              width: 16px;
-              height: 16px;
+              width: 12px;
+              height: 12px;
               border-radius: 50%;
-              background: ${hasDeadzone ? '#f43f5e' : '#a855f7'};
-              border: 2px solid #ffffff;
-              box-shadow: 0 0 10px ${hasDeadzone ? '#f43f5e' : '#a855f7'};
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              color: #ffffff;
-              font-weight: 700;
-            ">${idx}</div>`,
-            iconSize: [16, 16],
-            iconAnchor: [8, 8]
+              background: ${color};
+              box-shadow: 0 0 12px ${color};
+              filter: blur(0.5px);
+            "></div>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
           });
           const cpMarker = L.marker(cp.coordinates, { icon: cpIcon }).bindPopup(
             `<strong>${cp.name}</strong><br/>KM ${cp.kmMark}<br/>Smart: ${cp.carrierStrength.Smart}/5 • Globe: ${cp.carrierStrength.Globe}/5 • DITO: ${cp.carrierStrength.DITO}/5`

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { CoverageReport, TelcoProvider } from '../types';
-import { Star, MapPin, Award } from 'lucide-react';
+import { Star, MapPin, Radio } from 'lucide-react';
 
 interface CoverageReportModalProps {
   isOpen: boolean;
@@ -22,9 +22,7 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
   const [province] = useState('NCR');
   const [signalRating, setSignalRating] = useState<number>(5);
   const [networkType, setNetworkType] = useState<CoverageReport['networkType']>('5G');
-  const [speedMbps, setSpeedMbps] = useState<string>('85.0');
   const [notes, setNotes] = useState('');
-  const [reporterName, setReporterName] = useState('PinoyScout');
   const [isLocating, setIsLocating] = useState(false);
   const [coordinates, setCoordinates] = useState<[number, number]>([14.6202, 121.0531]);
 
@@ -59,17 +57,15 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
       coordinates,
       signalRating,
       networkType,
-      speedMbps: speedMbps ? parseFloat(speedMbps) : undefined,
       notes: notes.trim() || undefined,
-      reporterName: reporterName.trim() || 'Anonymous Scout',
       reportedAt: new Date().toISOString(),
       upvotes: 1
     };
 
     try {
       confetti({
-        particleCount: 80,
-        spread: 60,
+        particleCount: 60,
+        spread: 50,
         origin: { y: 0.6 }
       });
     } catch {
@@ -97,14 +93,14 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
               justifyContent: 'center',
               color: '#022c22'
             }}>
-              <Award size={20} />
+              <Radio size={20} />
             </div>
             <div>
               <h3 style={{ fontFamily: 'var(--font-headline)', fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>
-                Report Signal Strength
+                Log Radar Signal
               </h3>
-              <div style={{ fontSize: '0.72rem', color: 'var(--neon-lime)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                +50 SCOUT POINTS & BADGE
+              <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                COMMUNITY SIGNAL TELEMETRY
               </div>
             </div>
           </div>
@@ -245,59 +241,10 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
             </div>
           </div>
 
-          {/* Speed & Scout Handle */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
-            <div>
-              <label style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.3rem', fontFamily: 'var(--font-mono)' }}>
-                SPEEDTEST MBPS
-              </label>
-              <input
-                type="number"
-                step="any"
-                value={speedMbps}
-                onChange={(e) => setSpeedMbps(e.target.value)}
-                placeholder="e.g. 120"
-                style={{
-                  width: '100%',
-                  background: 'var(--surface-container-low)',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: 'var(--radius-lg)',
-                  padding: '0.65rem',
-                  color: 'var(--on-surface)',
-                  fontSize: '0.82rem',
-                  outline: 'none',
-                  fontFamily: 'var(--font-mono)'
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.3rem', fontFamily: 'var(--font-mono)' }}>
-                SCOUT HANDLE
-              </label>
-              <input
-                type="text"
-                value={reporterName}
-                onChange={(e) => setReporterName(e.target.value)}
-                placeholder="e.g. Makatizen"
-                style={{
-                  width: '100%',
-                  background: 'var(--surface-container-low)',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: 'var(--radius-lg)',
-                  padding: '0.65rem',
-                  color: 'var(--on-surface)',
-                  fontSize: '0.82rem',
-                  outline: 'none'
-                }}
-              />
-            </div>
-          </div>
-
           {/* Notes */}
           <div>
             <label style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.3rem', fontFamily: 'var(--font-mono)' }}>
-              COVERAGE NOTES
+              COVERAGE NOTES (OPTIONAL)
             </label>
             <textarea
               value={notes}
@@ -320,10 +267,10 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
 
           <button
             type="submit"
-            className="btn-primary"
-            style={{ width: '100%', marginTop: '0.5rem', padding: '0.85rem', borderRadius: 'var(--radius-lg)' }}
+            className="btn btn-primary"
+            style={{ width: '100%', marginTop: '0.5rem', padding: '0.85rem', borderRadius: 'var(--radius-lg)', fontWeight: 700 }}
           >
-            Submit Coverage Report (+50 Pts)
+            Log Radar Signal
           </button>
         </form>
       </div>

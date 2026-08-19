@@ -135,7 +135,7 @@ export const App: React.FC = () => {
     const updated = [...sims, newSim];
     setSims(updated);
     saveSims(updated);
-    handleSelectSim(newSim.id);
+    // Note: Active SIM remains unchanged until the user manually switches it
   };
 
   // Delete SIM
@@ -157,8 +157,7 @@ export const App: React.FC = () => {
 
     const updatedStats: UserStats = {
       ...userStats,
-      reportsSubmitted: userStats.reportsSubmitted + 1,
-      points: userStats.points + 50
+      reportsSubmitted: userStats.reportsSubmitted + 1
     };
     setUserStats(updatedStats);
     saveUserStats(updatedStats);
@@ -257,6 +256,7 @@ export const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         sims={sims}
         activeSim={activeSim}
+        onSelectSim={handleSelectSim}
         onUpdateSim={handleUpdateActiveSim}
         onAddSim={handleAddSim}
         onDeleteSim={handleDeleteSim}

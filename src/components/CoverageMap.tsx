@@ -123,7 +123,7 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
     }
   }, []);
 
-  // Update Storm Doppler Radar Heat Blobs on filteredReports change
+  // Update Storm Doppler Radar Heat Blobs on filteredReports or activeReport change
   useEffect(() => {
     if (!mapInstanceRef.current || !markersLayerRef.current) return;
 
@@ -131,64 +131,64 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
 
     filteredReports.forEach(report => {
       const radar = getSignalRadarStyle(report);
+      const isSelected = activeReport?.id === report.id;
 
-      const radarIcon = L.divIcon({
-        className: 'custom-doppler-radar-marker',
-        html: `
-          <div style="
-            position: relative;
-            width: ${radar.size}px;
-            height: ${radar.size}px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-          ">
-            <!-- Radiant Heatmap Aura -->
-            <div style="
-              position: absolute;
-              inset: 0;
-              border-radius: 50%;
-              background: ${radar.gradientBg};
-              filter: blur(4px);
-              animation: ${radar.animation};
-            "></div>
+      // Define geographic radii in meters and translucent opacities
+      let outerRadius = 1500;
+      let innerRadius = 600;
+      let outerOpacity = isSelected ? 0.38 : 0.14;
+      let innerOpacity = isSelected ? 0.70 : 0.32;
 
-            <!-- Solid Core Beacon Point -->
-            <div style="
-              position: relative;
-              z-index: 10;
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: ${radar.coreColor};
-              border: 2px solid #ffffff;
-              box-shadow: ${radar.glowShadow};
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              color: #ffffff;
-              font-weight: 800;
-              font-size: 9px;
-              font-family: var(--font-mono);
-            ">
-              ${report.networkType === '5G' ? '5G' : report.telco[0]}
-            </div>
-          </div>
-        `,
-        iconSize: [radar.size, radar.size],
-        iconAnchor: [radar.size / 2, radar.size / 2]
+      if (report.networkType === '5G' || (report.speedMbps && report.speedMbps >= 120) || report.signalRating === 5) {
+        outerRadius = 2000;
+        innerRadius = 750;
+        outerOpacity = isSelected ? 0.42 : 0.18;
+        innerOpacity = isSelected ? 0.75 : 0.38;
+      } else if (report.networkType === '4G/LTE' || (report.speedMbps && report.speedMbps >= 40) || report.signalRating === 4) {
+        outerRadius = 1500;
+        innerRadius = 550;
+        outerOpacity = isSelected ? 0.38 : 0.14;
+        innerOpacity = isSelected ? 0.68 : 0.32;
+      } else if (report.networkType !== 'Deadzone') {
+        outerRadius = 1100;
+        innerRadius = 400;
+        outerOpacity = isSelected ? 0.35 : 0.12;
+        innerOpacity = isSelected ? 0.65 : 0.28;
+      } else {
+        // Deadzone
+        outerRadius = 800;
+        innerRadius = 300;
+        outerOpacity = isSelected ? 0.40 : 0.16;
+        innerOpacity = isSelected ? 0.72 : 0.35;
+      }
+
+      // Outer Heatmap Aura (soft translucent radar wash, no outline)
+      const outerCircle = L.circle(report.coordinates, {
+        radius: outerRadius,
+        stroke: false,
+        fillColor: radar.coreColor,
+        fillOpacity: outerOpacity,
+        interactive: true,
+        className: `coverage-radar-aura ${isSelected ? 'selected' : ''}`
       });
 
-      const marker = L.marker(report.coordinates, { icon: radarIcon });
-
-      marker.on('click', () => {
-        setActiveReport(report);
+      // Inner Core Heat Blob (illuminates when selected, no outline)
+      const innerCircle = L.circle(report.coordinates, {
+        radius: innerRadius,
+        stroke: false,
+        fillColor: radar.coreColor,
+        fillOpacity: innerOpacity,
+        interactive: true,
+        className: `coverage-radar-core ${isSelected ? 'selected' : ''}`
       });
 
-      markersLayerRef.current?.addLayer(marker);
+      outerCircle.on('click', () => setActiveReport(report));
+      innerCircle.on('click', () => setActiveReport(report));
+
+      markersLayerRef.current?.addLayer(outerCircle);
+      markersLayerRef.current?.addLayer(innerCircle);
     });
-  }, [filteredReports]);
+  }, [filteredReports, activeReport]);
 
   const handleLocateMe = () => {
     if (navigator.geolocation && mapInstanceRef.current) {
@@ -200,8 +200,9 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
 
           const pulseIcon = L.divIcon({
             className: 'user-loc-pulse',
-            html: `<div style="width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 0 8px rgba(56, 189, 248, 0.5); border: 2px solid white;"></div>`,
-            iconSize: [16, 16]
+            html: `<div style="width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle, #38bdf8 0%, rgba(56, 189, 248, 0.4) 60%, transparent 100%); filter: blur(2px); box-shadow: 0 0 16px #38bdf8;"></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
           });
           L.marker([lat, lng], { icon: pulseIcon }).addTo(mapInstanceRef.current!);
         },
@@ -248,7 +249,7 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
               flexShrink: 0
             }}
           >
-            {reg.name === 'Batangas' ? '🔴 Batangas (15 Heat Zones)' : reg.name}
+            {reg.name}
           </button>
         ))}
       </div>
@@ -395,7 +396,7 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
             gap: '0.3rem'
           }}
         >
-          <Plus size={14} /> Log Radar Signal (+50 Pts)
+          <Plus size={14} /> Log Radar Signal
         </button>
       </div>
 
