@@ -31,3 +31,6 @@ lerna-debug.log*
 
 # Local sample files
 sample/
+
+# Environment variables
+.env

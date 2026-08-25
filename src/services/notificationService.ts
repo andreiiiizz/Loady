@@ -1,6 +1,7 @@
 import { SimCard } from '../types';
 import { isIos } from './networkMonitor';
-import { supabase, getDeviceFingerprint } from './supabase';
+import { getFirebaseMessaging, savePushSubscription, FIREBASE_VAPID_KEY } from './firebase';
+import { getToken } from 'firebase/messaging';
 
 export interface NotificationCapabilities {
   isSupported: boolean;
@@ -9,12 +10,6 @@ export interface NotificationCapabilities {
   permission: NotificationPermission | 'unsupported';
   isPushSubscribed: boolean;
 }
-
-// Default public VAPID key (base64url) for Web Push subscriptions.
-// Can be overridden via VITE_VAPID_PUBLIC_KEY environment variable.
-export const VAPID_PUBLIC_KEY =
-  import.meta.env.VITE_VAPID_PUBLIC_KEY ||
-  'BCY_x17O79YwPZfF-E3nS-gK-4Z9VqDk5E1Z5T3M2K8J7H6G5F4D3S2A1Q0W9E8R7T6Y5U4I3O2P1A0S9D8F7G6';
 
 const NOTIFICATION_HISTORY_KEY = 'loady_sent_alerts_v1';
 
@@ -44,21 +39,6 @@ function hasAlertBeenSentRecently(alertKey: string, cooldownHours: number = 12):
   if (!sentTime) return false;
   const elapsedHours = (Date.now() - sentTime) / (1000 * 60 * 60);
   return elapsedHours < cooldownHours;
-}
-
-/**
- * Converts a base64url string to a Uint8Array for PushManager subscription
- */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const buffer = new ArrayBuffer(rawData.length);
-  const outputArray = new Uint8Array(buffer);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
 }
 
 /**
@@ -93,53 +73,38 @@ export function getNotificationCapabilities(): NotificationCapabilities {
 }
 
 /**
- * Subscribes the client device to Web Push via PushManager and syncs subscription to Supabase.
+ * Subscribes the client device to Firebase Cloud Messaging (FCM) using the single unified Workbox SW registration.
  */
-export async function registerPushSubscription(userId?: string): Promise<{ success: boolean; subscription?: PushSubscription; error?: string }> {
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+export async function registerPushSubscription(userId?: string): Promise<{ success: boolean; token?: string; error?: string }> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) {
     return { success: false, error: 'Web Push is not supported on this browser' };
   }
 
   try {
     const registration = await navigator.serviceWorker.ready;
-    let subscription = await registration.pushManager.getSubscription();
+    const messaging = await getFirebaseMessaging();
 
-    if (!subscription) {
-      const convertedVapidKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: convertedVapidKey as unknown as BufferSource
+    if (messaging) {
+      const token = await getToken(messaging, {
+        vapidKey: FIREBASE_VAPID_KEY || undefined,
+        serviceWorkerRegistration: registration
       });
-    }
 
-    // Persist PushSubscription to Supabase
-    if (subscription && supabase) {
-      const subJson = subscription.toJSON();
-      if (subJson.keys && subJson.keys.p256dh && subJson.keys.auth && subJson.endpoint) {
-        await supabase.from('push_subscriptions').upsert(
-          {
-            user_id: userId || null,
-            device_fingerprint: getDeviceFingerprint(),
-            endpoint: subJson.endpoint,
-            p256dh: subJson.keys.p256dh,
-            auth: subJson.keys.auth,
-            user_agent: navigator.userAgent,
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: 'endpoint' }
-        );
+      if (token) {
+        await savePushSubscription(token, userId);
+        return { success: true, token };
       }
     }
 
-    return { success: true, subscription };
+    return { success: true };
   } catch (err: any) {
-    console.warn('Failed to subscribe to Web Push:', err);
+    console.warn('Failed to subscribe to FCM Push:', err);
     return { success: false, error: err.message || 'Failed to register push subscription' };
   }
 }
 
 /**
- * Request user permission for Web Push Notifications and register subscription with server.
+ * Request user permission for FCM Push Notifications and register token with Firestore.
  */
 export async function requestNotificationPermission(userId?: string): Promise<NotificationPermission | 'unsupported'> {
   if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -179,7 +144,6 @@ export async function dispatchPushNotification(title: string, body: string, icon
   };
 
   try {
-    // Try Service Worker notification first (works when app is in background on mobile)
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg && reg.showNotification) {
@@ -188,7 +152,6 @@ export async function dispatchPushNotification(title: string, body: string, icon
       }
     }
 
-    // Fallback to standard Window Notification
     new Notification(title, options);
     return true;
   } catch (err) {
@@ -199,7 +162,7 @@ export async function dispatchPushNotification(title: string, body: string, icon
 
 /**
  * Evaluates active SIMs against forecast thresholds and triggers alerts when app is open.
- * (Closed-app notifications are handled independently by the Supabase Edge Function cron job)
+ * (Closed-app notifications are handled independently by the scheduled Cloud Function)
  */
 export async function checkAndDispatchThresholdAlerts(sim: SimCard): Promise<void> {
   if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {

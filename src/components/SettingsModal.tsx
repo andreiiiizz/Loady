@@ -371,18 +371,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#ffffff' }}>
-                    {authUser ? (authUser.isGuest ? 'Guest Tester Mode' : authUser.phoneNumber) : 'Guest Mode'}
+                    {authUser ? (authUser.name ? `${authUser.name} (${authUser.phoneNumber})` : authUser.phoneNumber) : 'Guest Mode'}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--neon-lime)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                    {authUser?.isLoggedIn ? '● OTP VERIFIED' : 'DEMO MODE'}
+                    {authUser?.isLoggedIn ? '● LOCAL PROFILE' : 'DEMO MODE'}
                   </div>
                 </div>
               </div>
 
               <div style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', lineHeight: 1.45 }}>
                 {authUser?.isLoggedIn
-                  ? `Authenticated Philippine Mobile account connected to ${authUser.telco} network.`
-                  : 'You are currently using LoadWise in test/demo mode.'}
+                  ? `Local device profile connected to ${authUser.telco} network.`
+                  : 'You are currently using Loady in test/demo mode.'}
               </div>
             </div>
 

@@ -16,7 +16,12 @@ import {
 } from './services/storage';
 import { applyAutoDecay, calculateForecast } from './services/burnRateEngine';
 import { getLiveNetworkStatus } from './services/networkMonitor';
-import { fetchCoverageReports, subscribeToCrowdReports, upvoteCoverageReport as supabaseUpvote } from './services/supabase';
+import {
+  fetchCoverageReports,
+  subscribeToCrowdReports,
+  upvoteCoverageReport as firebaseUpvote,
+  flushPendingOfflineReports
+} from './services/firebase';
 
 // Critical Instant Components (First Contentful Paint)
 import { PhoneAuthView } from './components/PhoneAuthView';
@@ -91,7 +96,14 @@ export const App: React.FC = () => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Initial fetch and realtime subscription for Supabase crowd-sourced coverage reports
+  // Flush pending offline reports on app launch/relaunch when already online (resolves Known Issue 2)
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      flushPendingOfflineReports();
+    }
+  }, []);
+
+  // Initial fetch and realtime subscription for Firestore crowd-sourced coverage reports
   useEffect(() => {
     let isMounted = true;
 
@@ -162,11 +174,12 @@ export const App: React.FC = () => {
   // Handle Guest / Skip for Testing
   const handleSkipGuest = () => {
     const guestUser: AuthUser = {
+      name: 'Guest Tester',
       phoneNumber: '0919 123 4567',
       telco: 'Smart',
       isLoggedIn: false,
       isGuest: true,
-      verifiedAt: new Date().toISOString()
+      registeredAt: new Date().toISOString()
     };
     saveAuthUser(guestUser);
     setAuthUser(guestUser);
@@ -196,7 +209,6 @@ export const App: React.FC = () => {
     const updated = [...sims, newSim];
     setSims(updated);
     saveSims(updated);
-    // Note: Active SIM remains unchanged until the user manually switches it
   };
 
   // Delete SIM
@@ -226,7 +238,7 @@ export const App: React.FC = () => {
 
   // Upvote Coverage Report
   const handleUpvoteReport = (reportId: string) => {
-    supabaseUpvote(reportId);
+    firebaseUpvote(reportId);
     const updated = coverageReports.map(r => {
       if (r.id === reportId) {
         return { ...r, upvotes: r.upvotes + 1 };

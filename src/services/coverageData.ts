@@ -2,10 +2,11 @@ import { CoverageReport, TelcoProvider } from '../types';
 
 export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   // ==========================================
-  // BATANGAS PROVINCE (Comprehensive Ground Coverage)
+  // BATANGAS PROVINCE (Comprehensive Ground Coverage with Flat Barangay Code Foreign Keys)
   // ==========================================
   {
     id: 'cov-btg-port',
+    barangay_code: 'btg_batangas_city_santa_clara',
     telco: 'Smart',
     barangay: 'Batangas Port & Passenger Terminal',
     city: 'Batangas City',
@@ -21,6 +22,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-port-globe',
+    barangay_code: 'btg_batangas_city_santa_clara',
     telco: 'Globe',
     barangay: 'Batangas Port Access Rd (Brgy. Sta. Clara)',
     city: 'Batangas City',
@@ -36,6 +38,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-bsu',
+    barangay_code: 'btg_batangas_city_alangilan',
     telco: 'Smart',
     barangay: 'BatStateU Main Campus (Brgy. Alangilan)',
     city: 'Batangas City',
@@ -51,6 +54,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-bsu-dito',
+    barangay_code: 'btg_batangas_city_alangilan',
     telco: 'DITO',
     barangay: 'Brgy. Alangilan (Grand Terminal Vicinity)',
     city: 'Batangas City',
@@ -66,6 +70,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-capitol',
+    barangay_code: 'btg_batangas_city_kumintang_ibaba',
     telco: 'Globe',
     barangay: 'Brgy. Kumintang Ibaba (Provincial Capitol)',
     city: 'Batangas City',
@@ -81,6 +86,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-sm-lipa',
+    barangay_code: 'btg_lipa_city_marauoy_marawoy',
     telco: 'Smart',
     barangay: 'SM City Lipa & Robinsons (Brgy. Marawoy)',
     city: 'Lipa City',
@@ -96,6 +102,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-lima',
+    barangay_code: 'btg_lipa_city_bugtong_na_pulo',
     telco: 'DITO',
     barangay: 'The Outlets at Lipa / LIMA Estate',
     city: 'Lipa City',
@@ -111,6 +118,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-dlsl',
+    barangay_code: 'btg_lipa_city_tambo',
     telco: 'Globe',
     barangay: 'De La Salle Lipa (Brgy. Tambo)',
     city: 'Lipa City',
@@ -126,6 +134,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-fpip',
+    barangay_code: 'btg_sto_tomas_city_santa_anastacia',
     telco: 'Smart',
     barangay: 'First Philippine Industrial Park (FPIP)',
     city: 'Sto. Tomas City',
@@ -141,6 +150,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-tanauan',
+    barangay_code: 'btg_tanauan_city_darasa',
     telco: 'Globe',
     barangay: 'Brgy. Darasa / Victory Mall',
     city: 'Tanauan City',
@@ -156,6 +166,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-pico',
+    barangay_code: 'btg_nasugbu_papaya',
     telco: 'Smart',
     barangay: 'Hamilo Coast & Pico de Loro (Brgy. Papaya)',
     city: 'Nasugbu',
@@ -171,6 +182,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-nasugbu',
+    barangay_code: 'btg_nasugbu_wawa',
     telco: 'Globe',
     barangay: 'Brgy. Wawa / Nasugbu Town Proper',
     city: 'Nasugbu',
@@ -186,6 +198,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-matabungkay',
+    barangay_code: 'btg_lian_matabungkay',
     telco: 'Smart',
     barangay: 'Matabungkay Beach (Brgy. Matabungkay)',
     city: 'Lian',
@@ -201,6 +214,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-calatagan',
+    barangay_code: 'btg_calatagan_bagong_silang',
     telco: 'Globe',
     barangay: 'Cape Santiago Lighthouse (Brgy. Bagong Silang)',
     city: 'Calatagan',
@@ -216,6 +230,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-anilao',
+    barangay_code: 'btg_mabini_solo',
     telco: 'Smart',
     barangay: 'Anilao Dive Resorts (Brgy. Solo & Ligaya)',
     city: 'Mabini',
@@ -231,6 +246,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-gulugod',
+    barangay_code: 'btg_mabini_ligaya',
     telco: 'Smart',
     barangay: 'Mt. Gulugod Baboy Summit',
     city: 'Mabini',
@@ -246,6 +262,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-taal-heritage',
+    barangay_code: 'btg_taal_poblacion_1',
     telco: 'Globe',
     barangay: 'Taal Basilica (Brgy. Poblacion)',
     city: 'Taal',
@@ -261,6 +278,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-maculot',
+    barangay_code: 'btg_cuenca_barangay_1_poblacion',
     telco: 'Smart',
     barangay: 'Mt. Maculot Jump-off & Rockies',
     city: 'Cuenca',
@@ -276,6 +294,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
   {
     id: 'cov-btg-star-km85',
+    barangay_code: 'btg_san_jose_aguila',
     telco: 'DITO',
     barangay: 'STAR Tollway San Jose Cut (KM 85)',
     city: 'San Jose',
@@ -291,7 +310,7 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
   },
 
   // ==========================================
-  // METRO MANILA
+  // METRO MANILA & OTHER REGIONAL SEEDS
   // ==========================================
   {
     id: 'cov-mnl-1',
@@ -338,10 +357,6 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
     reportedAt: '2026-08-17T09:15:00Z',
     upvotes: 27
   },
-
-  // ==========================================
-  // BAGUIO & NORTHERN LUZON
-  // ==========================================
   {
     id: 'cov-bgu-1',
     telco: 'Smart',
@@ -357,10 +372,6 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
     reportedAt: '2026-08-12T13:00:00Z',
     upvotes: 56
   },
-
-  // ==========================================
-  // CEBU & VISAYAS
-  // ==========================================
   {
     id: 'cov-ceb-1',
     telco: 'Globe',
@@ -376,10 +387,6 @@ export const INITIAL_COVERAGE_REPORTS: CoverageReport[] = [
     reportedAt: '2026-08-17T15:40:00Z',
     upvotes: 49
   },
-
-  // ==========================================
-  // DAVAO & MINDANAO
-  // ==========================================
   {
     id: 'cov-dvo-1',
     telco: 'Smart',

@@ -3,11 +3,14 @@ export type TelcoProvider = 'Globe' | 'Smart' | 'DITO' | 'TM' | 'TNT' | 'GOMO';
 export type UsageProfile = 'light' | 'moderate' | 'heavy' | 'streamer';
 
 export interface AuthUser {
+  name?: string;
   phoneNumber: string;
   telco: TelcoProvider;
   isLoggedIn: boolean;
-  verifiedAt: string;
+  registeredAt?: string;
+  verifiedAt?: string;
   isGuest?: boolean;
+  uid?: string;
 }
 
 export interface UsageRecord {
@@ -53,8 +56,18 @@ export interface PromoItem {
   costPerGb: number;
 }
 
+export interface Barangay {
+  barangay_code: string;
+  name: string;
+  municipality: string;
+  province: string;
+  lat: number;
+  lng: number;
+}
+
 export interface CoverageReport {
   id: string;
+  barangay_code?: string;
   telco: TelcoProvider;
   barangay: string;
   city: string;
@@ -67,6 +80,30 @@ export interface CoverageReport {
   reporterName?: string;
   reportedAt: string;
   upvotes: number;
+  flagged?: boolean;
+  flag_count?: number;
+}
+
+export interface UserCheckin {
+  id: string;
+  user_id?: string;
+  device_fingerprint: string;
+  barangay_code: string;
+  telco: TelcoProvider;
+  signalRating: number;
+  networkType: '5G' | '4G/LTE' | '3G' | '2G' | 'Deadzone';
+  speedMbps?: number;
+  timestamp: string;
+}
+
+export interface OutOfAreaLog {
+  id: string;
+  user_id?: string;
+  device_fingerprint: string;
+  lat: number;
+  lng: number;
+  resolvedLocation?: string;
+  timestamp: string;
 }
 
 export interface RouteCheckpoint {

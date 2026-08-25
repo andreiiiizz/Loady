@@ -1,8 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { CoverageReport, TelcoProvider } from '../types';
-import { submitCoverageReport } from '../services/supabase';
-import { Star, MapPin, Radio, AlertCircle, Loader2 } from 'lucide-react';
+import { submitCoverageReport, logOutOfAreaLookup } from '../services/firebase';
+import { findNearestBarangayLocal, BATANGAS_BARANGAYS } from '../data/batangasBarangays';
+import { Star, MapPin, Radio, AlertCircle, Loader2, Info, Check, ShieldAlert } from 'lucide-react';
+
+const SUBMISSIONS_HISTORY_KEY = 'loady_reports_submission_timestamps_v1';
+const MAX_REPORTS_PER_HOUR = 10;
+const SUBMISSION_COOLDOWN_SEC = 6;
+
+function getRecentSubmissionCount(): number {
+  try {
+    const raw = localStorage.getItem(SUBMISSIONS_HISTORY_KEY);
+    if (!raw) return 0;
+    const timestamps: number[] = JSON.parse(raw);
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const valid = timestamps.filter(t => t > oneHourAgo);
+    return valid.length;
+  } catch {
+    return 0;
+  }
+}
+
+function recordSubmissionTimestamp(): void {
+  try {
+    const raw = localStorage.getItem(SUBMISSIONS_HISTORY_KEY);
+    const timestamps: number[] = raw ? JSON.parse(raw) : [];
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const valid = [...timestamps.filter(t => t > oneHourAgo), Date.now()];
+    localStorage.setItem(SUBMISSIONS_HISTORY_KEY, JSON.stringify(valid));
+  } catch {
+    // ignore
+  }
+}
 
 interface CoverageReportModalProps {
   isOpen: boolean;
@@ -18,26 +48,73 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
   defaultTelco
 }) => {
   const [telco, setTelco] = useState<TelcoProvider>(defaultTelco);
-  const [barangay, setBarangay] = useState('');
-  const [city] = useState('Metro Manila');
-  const [province] = useState('NCR');
+  const [barangayName, setBarangayName] = useState('Alangilan');
+  const [barangayCode, setBarangayCode] = useState<string>('btg_batangas_city_alangilan');
+  const [city, setCity] = useState('Batangas City');
+  const [province, setProvince] = useState('Batangas');
   const [signalRating, setSignalRating] = useState<number>(5);
   const [networkType, setNetworkType] = useState<CoverageReport['networkType']>('5G');
   const [notes, setNotes] = useState('');
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cooldownSec, setCooldownSec] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [coordinates, setCoordinates] = useState<[number, number]>([14.6202, 121.0531]);
+  const [outOfAreaNotice, setOutOfAreaNotice] = useState<string | null>(null);
+  const [coordinates, setCoordinates] = useState<[number, number]>([13.7844, 121.0743]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (cooldownSec > 0) {
+      const timer = setTimeout(() => setCooldownSec(prev => prev - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldownSec]);
+
+  // Filtered barangay list for fast discrete selector
+  const filteredBarangays = useMemo(() => {
+    if (!searchQuery.trim()) return BATANGAS_BARANGAYS.slice(0, 30);
+    const q = searchQuery.toLowerCase();
+    return BATANGAS_BARANGAYS.filter(
+      b => b.name.toLowerCase().includes(q) || b.municipality.toLowerCase().includes(q)
+    ).slice(0, 30);
+  }, [searchQuery]);
 
   if (!isOpen) return null;
 
   const handleUseCurrentLocation = () => {
     if (navigator.geolocation) {
       setIsLocating(true);
+      setOutOfAreaNotice(null);
+
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          setCoordinates([pos.coords.latitude, pos.coords.longitude]);
-          setBarangay('Current GPS Location');
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setCoordinates([lat, lng]);
+
+          // 100% Local In-Memory Haversine nearest barangay lookup
+          const { barangay, distanceKm, isWithinSupportedArea } = findNearestBarangayLocal(lat, lng);
+
+          if (isWithinSupportedArea) {
+            setBarangayName(barangay.name);
+            setBarangayCode(barangay.barangay_code);
+            setCity(barangay.municipality);
+            setProvince(barangay.province);
+            setOutOfAreaNotice(null);
+          } else {
+            // Out-of-area graceful fallback: acknowledge, surface nearest, and log demand telemetry
+            setBarangayName(barangay.name);
+            setBarangayCode(barangay.barangay_code);
+            setCity(barangay.municipality);
+            setProvince(barangay.province);
+            setOutOfAreaNotice(
+              `We haven't expanded to your exact GPS location yet (~${distanceKm}km from active coverage zone). We've logged this area to prioritize upcoming nationwide expansion!`
+            );
+            logOutOfAreaLookup(lat, lng, `Outside dataset (~${distanceKm}km away)`);
+          }
+
           setIsLocating(false);
         },
         () => {
@@ -47,25 +124,51 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
     }
   };
 
+  const handleSelectBarangay = (b: typeof BATANGAS_BARANGAYS[0]) => {
+    setBarangayName(b.name);
+    setBarangayCode(b.barangay_code);
+    setCity(b.municipality);
+    setProvince(b.province);
+    setCoordinates([b.lat, b.lng]);
+    setOutOfAreaNotice(null);
+    setShowDropdown(false);
+    setSearchQuery('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!barangay.trim()) return;
+    if (!barangayName.trim()) return;
+
+    // Rate limiting check (max 10 submissions/hour)
+    const recentCount = getRecentSubmissionCount();
+    if (recentCount >= MAX_REPORTS_PER_HOUR) {
+      setSubmitError(`Hourly limit reached (${MAX_REPORTS_PER_HOUR} reports/hour). Please wait before submitting another signal report.`);
+      return;
+    }
+
+    if (cooldownSec > 0) {
+      setSubmitError(`Please wait ${cooldownSec}s before submitting another report.`);
+      return;
+    }
 
     setSubmitError(null);
     setIsSubmitting(true);
 
     const newReport: CoverageReport = {
       id: 'report-' + Date.now(),
+      barangay_code: barangayCode || undefined,
       telco,
-      barangay: barangay.trim(),
-      city: city.trim() || 'Metro Manila',
-      province: province.trim() || 'Luzon',
+      barangay: barangayName.trim(),
+      city: city.trim() || 'Batangas City',
+      province: province.trim() || 'Batangas',
       coordinates,
       signalRating,
       networkType,
       notes: notes.trim() || undefined,
       reportedAt: new Date().toISOString(),
-      upvotes: 1
+      upvotes: 1,
+      flagged: false,
+      flag_count: 0
     };
 
     try {
@@ -75,6 +178,9 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
         setIsSubmitting(false);
         return;
       }
+
+      recordSubmissionTimestamp();
+      setCooldownSec(SUBMISSION_COOLDOWN_SEC);
 
       try {
         confetti({
@@ -97,9 +203,9 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.15rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <div style={{
               width: '36px',
@@ -131,10 +237,30 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {/* Out of Area Graceful Fallback Banner */}
+        {outOfAreaNotice && (
+          <div style={{
+            background: 'rgba(56, 189, 248, 0.12)',
+            border: '1px solid rgba(56, 189, 248, 0.4)',
+            borderRadius: 'var(--radius-md)',
+            padding: '0.65rem 0.85rem',
+            marginBottom: '0.85rem',
+            color: '#38bdf8',
+            fontSize: '0.74rem',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '0.45rem',
+            lineHeight: 1.4
+          }}>
+            <Info size={15} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>{outOfAreaNotice}</div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
           {/* Telco Selector */}
           <div>
-            <label style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)' }}>
+            <label style={{ fontSize: '0.74rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
               CARRIER / SIM YOU ARE USING
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.45rem' }}>
@@ -159,11 +285,11 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
             </div>
           </div>
 
-          {/* Location & GPS Autofill */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-              <label style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
-                BARANGAY & LOCATION
+          {/* Barangay Location Selector */}
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+              <label style={{ fontSize: '0.74rem', color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
+                BARANGAY & MUNICIPALITY
               </label>
               <button
                 type="button"
@@ -183,31 +309,108 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
                 <MapPin size={12} /> {isLocating ? 'Locating...' : 'Use My GPS'}
               </button>
             </div>
-            <input
-              type="text"
-              required
-              value={barangay}
-              onChange={(e) => setBarangay(e.target.value)}
-              placeholder="e.g. Brgy. San Antonio / SM Megamall"
+
+            {/* Selected Barangay Display / Search Trigger */}
+            <div
+              onClick={() => setShowDropdown(!showDropdown)}
               style={{
                 width: '100%',
                 background: 'var(--surface-container-low)',
                 border: '1px solid var(--glass-border)',
                 borderRadius: 'var(--radius-lg)',
-                padding: '0.75rem',
+                padding: '0.65rem 0.85rem',
                 color: 'var(--on-surface)',
                 fontSize: '0.82rem',
-                outline: 'none'
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
               }}
-            />
+            >
+              <div>
+                <span style={{ fontWeight: 700, color: '#ffffff' }}>Brgy. {barangayName}</span>
+                <span style={{ color: 'var(--on-surface-variant)', marginLeft: '0.4rem', fontSize: '0.75rem' }}>
+                  ({city}, {province})
+                </span>
+              </div>
+              <span style={{ fontSize: '0.7rem', color: 'var(--primary)' }}>Change ▾</span>
+            </div>
+
+            {/* Barangay Search Dropdown */}
+            {showDropdown && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                zIndex: 50,
+                marginTop: '0.3rem',
+                background: 'rgba(20, 24, 34, 0.98)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: 'var(--radius-lg)',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.8)',
+                padding: '0.5rem',
+                maxHeight: '220px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.35rem'
+              }}>
+                <input
+                  type="text"
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search barangay or municipality..."
+                  style={{
+                    width: '100%',
+                    background: 'var(--surface-container-high)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '0.45rem 0.65rem',
+                    color: '#ffffff',
+                    fontSize: '0.78rem',
+                    outline: 'none'
+                  }}
+                />
+
+                <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  {filteredBarangays.map((b) => (
+                    <div
+                      key={b.barangay_code}
+                      onClick={() => handleSelectBarangay(b)}
+                      style={{
+                        padding: '0.45rem 0.6rem',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.76rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: barangayCode === b.barangay_code ? 'var(--primary-container)' : 'transparent',
+                        color: barangayCode === b.barangay_code ? 'var(--on-primary-container)' : '#ffffff'
+                      }}
+                    >
+                      <div>
+                        <strong>{b.name}</strong>
+                        <span style={{ opacity: 0.7, marginLeft: '0.35rem', fontSize: '0.7rem' }}>
+                          • {b.municipality}
+                        </span>
+                      </div>
+                      {barangayCode === b.barangay_code && <Check size={13} />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Signal Rating */}
           <div>
-            <label style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)' }}>
+            <label style={{ fontSize: '0.74rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
               SIGNAL QUALITY ({signalRating}/5 BARS)
             </label>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center' }}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
                   key={star}
@@ -218,7 +421,7 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
                     border: star <= signalRating ? '1px solid #facc15' : '1px solid var(--glass-border)',
                     boxShadow: star <= signalRating ? '0 0 10px rgba(250, 204, 21, 0.4)' : 'none',
                     borderRadius: 'var(--radius-lg)',
-                    padding: '0.6rem 0.85rem',
+                    padding: '0.55rem 0.75rem',
                     cursor: 'pointer',
                     color: star <= signalRating ? '#facc15' : 'var(--on-surface-variant)',
                     display: 'flex',
@@ -227,7 +430,7 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
                     flex: 1
                   }}
                 >
-                  <Star size={18} fill={star <= signalRating ? '#facc15' : 'none'} />
+                  <Star size={17} fill={star <= signalRating ? '#facc15' : 'none'} />
                 </button>
               ))}
             </div>
@@ -235,7 +438,7 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
 
           {/* Network Tier */}
           <div>
-            <label style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)' }}>
+            <label style={{ fontSize: '0.74rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
               NETWORK TIER
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.45rem' }}>
@@ -262,22 +465,22 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
 
           {/* Notes */}
           <div>
-            <label style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.3rem', fontFamily: 'var(--font-mono)' }}>
+            <label style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', display: 'block', marginBottom: '0.25rem', fontFamily: 'var(--font-mono)' }}>
               COVERAGE NOTES (OPTIONAL)
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. Fast 5G outdoors, drops slightly inside basement parking..."
+              placeholder="e.g. Fast 5G outdoors, low ping in Mobile Legends..."
               rows={2}
               style={{
                 width: '100%',
                 background: 'var(--surface-container-low)',
                 border: '1px solid var(--glass-border)',
                 borderRadius: 'var(--radius-lg)',
-                padding: '0.65rem',
+                padding: '0.6rem',
                 color: 'var(--on-surface)',
-                fontSize: '0.82rem',
+                fontSize: '0.8rem',
                 outline: 'none',
                 resize: 'none'
               }}
@@ -289,9 +492,9 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
               background: 'rgba(239, 68, 68, 0.15)',
               border: '1px solid rgba(239, 68, 68, 0.4)',
               borderRadius: 'var(--radius-md)',
-              padding: '0.65rem 0.85rem',
+              padding: '0.6rem 0.8rem',
               color: '#f87171',
-              fontSize: '0.75rem',
+              fontSize: '0.74rem',
               display: 'flex',
               alignItems: 'center',
               gap: '0.45rem'
@@ -303,22 +506,34 @@ export const CoverageReportModal: React.FC<CoverageReportModalProps> = ({
 
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || cooldownSec > 0}
             className="btn btn-primary"
             style={{
               width: '100%',
-              marginTop: '0.5rem',
-              padding: '0.85rem',
+              marginTop: '0.35rem',
+              padding: '0.8rem',
               borderRadius: 'var(--radius-lg)',
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '0.5rem'
+              gap: '0.5rem',
+              opacity: cooldownSec > 0 ? 0.65 : 1
             }}
           >
-            {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Radio size={16} />}
-            {isSubmitting ? 'Transmitting Radar Signal...' : 'Log Radar Signal'}
+            {isSubmitting ? (
+              <>
+                <Loader2 size={16} className="animate-spin" /> Transmitting Radar Signal...
+              </>
+            ) : cooldownSec > 0 ? (
+              <>
+                <ShieldAlert size={16} /> Cooldown ({cooldownSec}s)
+              </>
+            ) : (
+              <>
+                <Radio size={16} /> Log Radar Signal
+              </>
+            )}
           </button>
         </form>
       </div>

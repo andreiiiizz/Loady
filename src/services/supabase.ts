@@ -2,14 +2,101 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { CoverageReport, TelcoProvider } from '../types';
 import { loadCoverageReports, saveCoverageReports } from './storage';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const RAW_URL = import.meta.env.VITE_SUPABASE_URL || '';
+// Clean trailing /rest/v1 or trailing slashes to prevent 404 in supabase-js
+export const SUPABASE_URL = RAW_URL.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
+export const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
-export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_URL !== 'YOUR_SUPABASE_URL');
+export const isSupabaseConfigured = Boolean(
+  SUPABASE_URL &&
+  SUPABASE_ANON_KEY &&
+  SUPABASE_URL !== 'YOUR_SUPABASE_URL' &&
+  SUPABASE_URL.startsWith('https://')
+);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true
+      }
+    })
   : null;
+
+/**
+ * Diagnostics Helper: Checks if Supabase connection is live and if tables exist
+ */
+export async function testSupabaseConnection(): Promise<{
+  connected: boolean;
+  url: string;
+  hasAnonKey: boolean;
+  tables: {
+    coverage_reports: boolean;
+    sim_profiles: boolean;
+    badges: boolean;
+    push_subscriptions: boolean;
+  };
+  error?: string;
+}> {
+  const status = {
+    connected: false,
+    url: SUPABASE_URL,
+    hasAnonKey: Boolean(SUPABASE_ANON_KEY),
+    tables: {
+      coverage_reports: false,
+      sim_profiles: false,
+      badges: false,
+      push_subscriptions: false
+    },
+    error: undefined as string | undefined
+  };
+
+  if (!supabase) {
+    status.error = 'Supabase client is not initialized. Check .env file.';
+    return status;
+  }
+
+  try {
+    // 1. Test coverage_reports table
+    const { error: covErr } = await supabase
+      .from('coverage_reports')
+      .select('id')
+      .limit(1);
+
+    if (!covErr) {
+      status.tables.coverage_reports = true;
+    } else {
+      status.error = `coverage_reports table error: ${covErr.message}`;
+    }
+
+    // 2. Test sim_profiles table
+    const { error: simErr } = await supabase
+      .from('sim_profiles')
+      .select('id')
+      .limit(1);
+    if (!simErr) status.tables.sim_profiles = true;
+
+    // 3. Test badges table
+    const { error: badgeErr } = await supabase
+      .from('badges')
+      .select('id')
+      .limit(1);
+    if (!badgeErr) status.tables.badges = true;
+
+    // 4. Test push_subscriptions table
+    const { error: pushErr } = await supabase
+      .from('push_subscriptions')
+      .select('id')
+      .limit(1);
+    if (!pushErr) status.tables.push_subscriptions = true;
+
+    status.connected = status.tables.coverage_reports;
+    return status;
+  } catch (err: any) {
+    status.error = err.message || 'Failed to connect to Supabase';
+    return status;
+  }
+}
 
 // Unique Device Fingerprint for abuse prevention & rate limiting
 export function getDeviceFingerprint(): string {

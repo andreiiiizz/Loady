@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "coverage_reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "telco", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "coverage_reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "barangay_code", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "barangays",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "municipality", "order": "ASCENDING" },
+        { "fieldPath": "name", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

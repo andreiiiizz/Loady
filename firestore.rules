@@ -1,0 +1,120 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isValidTelco(telco) {
+      return telco in ['Globe', 'Smart', 'DITO', 'GOMO', 'TM', 'TNT'];
+    }
+
+    function isValidNetworkType(type) {
+      return type in ['5G', '4G/LTE', '3G', '2G', 'Deadzone'];
+    }
+
+    // 1. Barangays Collection (Flat & Province-Agnostic)
+    // Public read for offline/online lookup; writes locked to Admin SDK / seed scripts only
+    match /barangays/{barangay_code} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 2. Coverage Reports Collection
+    // Read: Public
+    // Create: Open unauthenticated client writes with strict schema validation & foreign key check
+    // Update: Single-increment upvotes only
+    // Delete: Prohibited
+    match /coverage_reports/{reportId} {
+      allow read: if true;
+
+      allow create: if
+        // Validate Schema Whitelist (no arbitrary field injection)
+        request.resource.data.keys().hasOnly([
+          'barangay_code', 'device_fingerprint', 'user_id', 'telco', 'barangay',
+          'city', 'province', 'lat', 'lng', 'signal_rating', 'network_type',
+          'speed_mbps', 'notes', 'upvotes', 'flagged', 'flag_count', 'created_at', 'server_synced_at'
+        ]) &&
+        request.resource.data.telco is string && isValidTelco(request.resource.data.telco) &&
+        request.resource.data.network_type is string && isValidNetworkType(request.resource.data.network_type) &&
+        request.resource.data.signal_rating is int && request.resource.data.signal_rating >= 1 && request.resource.data.signal_rating <= 5 &&
+        request.resource.data.lat is number && request.resource.data.lng is number &&
+        // Foreign key validation against barangays collection (if barangay_code provided)
+        (
+          request.resource.data.barangay_code == null ||
+          exists(/databases/$(database)/documents/barangays/$(request.resource.data.barangay_code))
+        );
+
+      // Upvote updates: only 'upvotes' field can change, and must strictly increment by 1
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['upvotes']) &&
+        request.resource.data.upvotes == resource.data.upvotes + 1;
+
+      allow delete: if false;
+    }
+
+    // 3. User Check-Ins
+    // Create: Open signal telemetry check-in with schema validation
+    // Read: Public
+    match /user_checkins/{checkinId} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly([
+        'user_id', 'device_fingerprint', 'barangay_code', 'telco',
+        'signal_rating', 'network_type', 'speed_mbps', 'timestamp', 'created_at'
+      ]);
+      allow update, delete: if false;
+    }
+
+    // 4. Out-of-Area Telemetry Logs
+    // Create: Client writes logged when GPS/search falls outside supported active regions
+    // Read: Denied from client (collected for backend expansion analytics)
+    match /out_of_area_logs/{logId} {
+      allow create: if request.resource.data.keys().hasOnly([
+        'lat', 'lng', 'resolved_location', 'device_fingerprint', 'user_id', 'timestamp', 'created_at'
+      ]) && request.resource.data.lat is number && request.resource.data.lng is number;
+
+      allow read, update, delete: if false;
+    }
+
+    // 5. Sent Notifications Log (Cloud Functions Admin SDK only)
+    match /sent_notifications/{id} {
+      allow read, write: if false;
+    }
+
+    // 6. User SIM Profiles
+    // Create: Open with schema whitelist and required device_id
+    // Update: Requires matching device_id to prevent account hijacking
+    // Read: Public
+    // Delete: Prohibited
+    match /sim_profiles/{id} {
+      allow read: if true;
+
+      allow create: if request.resource.data.keys().hasOnly([
+        'id', 'device_id', 'user_id', 'name', 'telco', 'phone_number',
+        'active_promo', 'total_data_mb', 'remaining_data_mb', 'expiry_date',
+        'is_no_expiry', 'regular_balance_php', 'updated_at', 'server_timestamp', 'token'
+      ]) && request.resource.data.device_id is string;
+
+      allow update: if request.resource.data.keys().hasOnly([
+        'id', 'device_id', 'user_id', 'name', 'telco', 'phone_number',
+        'active_promo', 'total_data_mb', 'remaining_data_mb', 'expiry_date',
+        'is_no_expiry', 'regular_balance_php', 'updated_at', 'server_timestamp', 'token'
+      ]) && request.resource.data.device_id == resource.data.device_id;
+
+      allow delete: if false;
+    }
+
+    // 7. Push Subscriptions (FCM Tokens)
+    // Create: Open with schema whitelist and required device_id
+    // Update: Requires matching device_id to prevent push token hijacking
+    // Read & Delete: Denied from client
+    match /push_subscriptions/{id} {
+      allow create: if request.resource.data.keys().hasOnly([
+        'token', 'device_id', 'user_id', 'device_fingerprint', 'user_agent', 'updated_at', 'server_timestamp'
+      ]) && request.resource.data.device_id is string;
+
+      allow update: if request.resource.data.keys().hasOnly([
+        'token', 'device_id', 'user_id', 'device_fingerprint', 'user_agent', 'updated_at', 'server_timestamp'
+      ]) && request.resource.data.device_id == resource.data.device_id;
+
+      allow read, delete: if false;
+    }
+  }
+}
