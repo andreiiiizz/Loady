@@ -34,46 +34,7 @@ async function migrateData() {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // 1. Migrate Coverage Reports
-  console.log('📡 Fetching coverage reports from Supabase...');
-  const { data: reports, error: reportsErr } = await supabase
-    .from('coverage_reports')
-    .select('*');
 
-  if (reportsErr) {
-    console.error('❌ Failed to fetch from Supabase coverage_reports:', reportsErr.message);
-  } else if (reports && reports.length > 0) {
-    console.log(`📦 Found ${reports.length} reports in Supabase. Mapping to Firestore schema...`);
-    const batch = db.batch();
-
-    reports.forEach((row) => {
-      const lat = row.lat;
-      const lng = row.lng;
-      const nearest = findNearestBarangayLocal(lat, lng);
-
-      const docRef = db.collection('coverage_reports').doc(row.id.toString());
-      batch.set(docRef, {
-        barangay_code: nearest.barangay.barangay_code,
-        telco: row.telco,
-        barangay: row.barangay || nearest.barangay.name,
-        city: row.city || nearest.barangay.municipality,
-        province: row.province || nearest.barangay.province,
-        lat,
-        lng,
-        signal_rating: row.signal_rating,
-        network_type: row.network_type,
-        speed_mbps: row.speed_mbps || null,
-        notes: row.notes || null,
-        upvotes: row.upvotes || 1,
-        created_at: row.created_at || new Date().toISOString()
-      }, { merge: true });
-    });
-
-    await batch.commit();
-    console.log(`  ✓ Successfully migrated ${reports.length} coverage reports to Firestore.`);
-  } else {
-    console.log('ℹ️  No existing coverage reports found in Supabase (Greenfield build).');
-  }
 
   // 2. Migrate SIM Profiles
   console.log('📱 Fetching SIM profiles from Supabase...');

@@ -18,37 +18,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // 2. Coverage Reports Collection
-    // Read: Public
-    // Create: Open unauthenticated client writes with strict schema validation & foreign key check
-    // Update: Single-increment upvotes only
-    // Delete: Prohibited
+    // 2. Coverage Reports Collection (DEPRECATED & LOCKED DOWN)
+    // Feature removed from client application. All client read and write operations are disabled
+    // to preserve data retention and rollback capability.
     match /coverage_reports/{reportId} {
-      allow read: if true;
-
-      allow create: if
-        // Validate Schema Whitelist (no arbitrary field injection)
-        request.resource.data.keys().hasOnly([
-          'barangay_code', 'device_fingerprint', 'user_id', 'telco', 'barangay',
-          'city', 'province', 'lat', 'lng', 'signal_rating', 'network_type',
-          'speed_mbps', 'notes', 'upvotes', 'flagged', 'flag_count', 'created_at', 'server_synced_at'
-        ]) &&
-        request.resource.data.telco is string && isValidTelco(request.resource.data.telco) &&
-        request.resource.data.network_type is string && isValidNetworkType(request.resource.data.network_type) &&
-        request.resource.data.signal_rating is int && request.resource.data.signal_rating >= 1 && request.resource.data.signal_rating <= 5 &&
-        request.resource.data.lat is number && request.resource.data.lng is number &&
-        // Foreign key validation against barangays collection (if barangay_code provided)
-        (
-          request.resource.data.barangay_code == null ||
-          exists(/databases/$(database)/documents/barangays/$(request.resource.data.barangay_code))
-        );
-
-      // Upvote updates: only 'upvotes' field can change, and must strictly increment by 1
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['upvotes']) &&
-        request.resource.data.upvotes == resource.data.upvotes + 1;
-
-      allow delete: if false;
+      allow read, write: if false;
     }
+
 
     // 3. User Check-Ins
     // Create: Open signal telemetry check-in with schema validation

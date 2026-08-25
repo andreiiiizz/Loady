@@ -1,14 +1,11 @@
 import React, { useState, useEffect, Suspense } from 'react';
-import { SimCard, CoverageReport, AuthUser } from './types';
+import { SimCard, AuthUser, PromoItem } from './types';
 import {
   loadSims,
   saveSims,
   getActiveSimId,
   setActiveSimId,
-  loadCoverageReports,
-  saveCoverageReports,
   loadUserStats,
-  saveUserStats,
   UserStats,
   loadAuthUser,
   saveAuthUser,
@@ -16,12 +13,6 @@ import {
 } from './services/storage';
 import { applyAutoDecay, calculateForecast } from './services/burnRateEngine';
 import { getLiveNetworkStatus } from './services/networkMonitor';
-import {
-  fetchCoverageReports,
-  subscribeToCrowdReports,
-  upvoteCoverageReport as firebaseUpvote,
-  flushPendingOfflineReports
-} from './services/firebase';
 
 // Critical Instant Components (First Contentful Paint)
 import { PhoneAuthView } from './components/PhoneAuthView';
@@ -29,18 +20,12 @@ import { Navbar } from './components/Navbar';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { BurnRateCard } from './components/BurnRateCard';
 
-// Lazy Loaded Secondary Heavy Modules (Leaflet Maps, Trip Planner, Modals)
+// Lazy Loaded Secondary Modules
 const AutoBalanceTracker = React.lazy(() =>
   import('./components/AutoBalanceTracker').then(m => ({ default: m.AutoBalanceTracker }))
 );
-const CoverageMap = React.lazy(() =>
-  import('./components/CoverageMap').then(m => ({ default: m.CoverageMap }))
-);
-const TripModeView = React.lazy(() =>
-  import('./components/TripModeView').then(m => ({ default: m.TripModeView }))
-);
-const CoverageReportModal = React.lazy(() =>
-  import('./components/CoverageReportModal').then(m => ({ default: m.CoverageReportModal }))
+const PromoDirectory = React.lazy(() =>
+  import('./components/PromoDirectory').then(m => ({ default: m.PromoDirectory }))
 );
 const SettingsModal = React.lazy(() =>
   import('./components/SettingsModal').then(m => ({ default: m.SettingsModal }))
@@ -66,11 +51,9 @@ export const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(loadAuthUser());
   const [sims, setSims] = useState<SimCard[]>(loadSims());
   const [activeSimId, setActiveSimIdState] = useState<string>(getActiveSimId());
-  const [coverageReports, setCoverageReports] = useState<CoverageReport[]>(loadCoverageReports());
-  const [userStats, setUserStats] = useState<UserStats>(loadUserStats());
+  const [userStats] = useState<UserStats>(loadUserStats());
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Active SIM pointer
@@ -95,38 +78,6 @@ export const App: React.FC = () => {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
-
-  // Flush pending offline reports on app launch/relaunch when already online (resolves Known Issue 2)
-  useEffect(() => {
-    if (typeof navigator !== 'undefined' && navigator.onLine) {
-      flushPendingOfflineReports();
-    }
-  }, []);
-
-  // Initial fetch and realtime subscription for Firestore crowd-sourced coverage reports
-  useEffect(() => {
-    let isMounted = true;
-
-    fetchCoverageReports().then(reports => {
-      if (isMounted && reports && reports.length > 0) {
-        setCoverageReports(reports);
-      }
-    });
-
-    const unsubscribe = subscribeToCrowdReports((newReport) => {
-      if (isMounted) {
-        setCoverageReports(prev => {
-          if (prev.some(r => r.id === newReport.id)) return prev;
-          return [newReport, ...prev];
-        });
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      unsubscribe();
-    };
-  }, []);
 
   // Periodic real-time background decay calculation (every 30 seconds)
   useEffect(() => {
@@ -222,31 +173,25 @@ export const App: React.FC = () => {
     }
   };
 
-  // Submit Coverage Report
-  const handleSubmitReport = (newReport: CoverageReport) => {
-    const updated = [newReport, ...coverageReports];
-    setCoverageReports(updated);
-    saveCoverageReports(updated);
-
-    const updatedStats: UserStats = {
-      ...userStats,
-      reportsSubmitted: userStats.reportsSubmitted + 1
-    };
-    setUserStats(updatedStats);
-    saveUserStats(updatedStats);
-  };
-
-  // Upvote Coverage Report
-  const handleUpvoteReport = (reportId: string) => {
-    firebaseUpvote(reportId);
-    const updated = coverageReports.map(r => {
-      if (r.id === reportId) {
-        return { ...r, upvotes: r.upvotes + 1 };
+  // Apply Selected Promo to Active SIM
+  const handleSelectPromoForSim = (promo: PromoItem) => {
+    const updated = sims.map(s => {
+      if (s.id === activeSim.id) {
+        return {
+          ...s,
+          activePromo: promo.name,
+          totalDataMb: promo.dataAllowanceMb,
+          remainingDataMb: promo.dataAllowanceMb,
+          expiryDate: promo.isNoExpiry ? 'NO_EXPIRY' : new Date(Date.now() + promo.validityDays * 24 * 60 * 60 * 1000).toISOString(),
+          isNoExpiry: promo.isNoExpiry,
+          lastSyncAt: new Date().toISOString()
+        };
       }
-      return r;
+      return s;
     });
-    setCoverageReports(updated);
-    saveCoverageReports(updated);
+    setSims(updated);
+    saveSims(updated);
+    setCurrentTab('dashboard');
   };
 
   // If incoming Web Share Target is detected, ensure active tab is Dashboard
@@ -304,24 +249,13 @@ export const App: React.FC = () => {
           </Suspense>
         )}
 
-        {currentTab === 'coverage' && (
+        {currentTab === 'promos' && (
           <Suspense fallback={<TabLoadingFallback />}>
-            <CoverageMap
-              reports={coverageReports}
-              onOpenReportModal={() => setIsReportModalOpen(true)}
-              onUpvoteReport={handleUpvoteReport}
+            <PromoDirectory
+              activeSim={activeSim}
+              onSelectPromoForSim={handleSelectPromoForSim}
             />
           </Suspense>
-        )}
-
-        {currentTab === 'trip' && (
-          <Suspense fallback={<TabLoadingFallback />}>
-            <TripModeView />
-          </Suspense>
-        )}
-
-        {currentTab === 'promos' && (
-          <div style={{ flex: 1 }} />
         )}
       </main>
 
@@ -331,18 +265,6 @@ export const App: React.FC = () => {
         onSelectTab={setCurrentTab}
         hasWarning={hasWarning}
       />
-
-      {/* Coverage Report Modal */}
-      {isReportModalOpen && (
-        <Suspense fallback={null}>
-          <CoverageReportModal
-            isOpen={isReportModalOpen}
-            onClose={() => setIsReportModalOpen(false)}
-            onSubmitReport={handleSubmitReport}
-            defaultTelco={activeSim.telco}
-          />
-        </Suspense>
-      )}
 
       {/* Settings & Multi-SIM Modal */}
       {isSettingsOpen && (
@@ -368,3 +290,4 @@ export const App: React.FC = () => {
   );
 };
 export default App;
+

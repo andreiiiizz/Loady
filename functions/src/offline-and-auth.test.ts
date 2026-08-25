@@ -14,97 +14,31 @@ const localStorageMock = {
 
 global.localStorage = localStorageMock as any;
 
-describe('Offline Queue Flush Simulation Suite', () => {
+describe('Offline SIM Profile Storage Simulation Suite', () => {
   beforeEach(() => {
     localStorageMock.clear();
   });
 
-  it('correctly enqueues offline coverage reports when disconnected', () => {
-    const offlineReport = {
-      id: 'cov_offline_test_001',
-      barangay_code: 'btg_batangas_city_alangilan',
+  it('correctly persists local SIM profiles and pacing state offline', () => {
+    const simProfile = {
+      id: 'sim_offline_001',
+      name: 'Primary Smart 5G',
       telco: 'Smart',
-      barangay: 'Alangilan',
-      city: 'Batangas City',
-      province: 'Batangas',
-      coordinates: [13.7844, 121.0743] as [number, number],
-      signalRating: 5,
-      networkType: '5G' as const,
-      speedMbps: 120,
-      reportedAt: new Date().toISOString(),
-      upvotes: 1
+      totalDataMb: 8192,
+      remainingDataMb: 5120,
+      expiryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      isNoExpiry: false
     };
 
-    // Simulate saving to offline queue
-    const queue = [offlineReport];
-    localStorageMock.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    localStorageMock.setItem('loadwise_sims_v1', JSON.stringify([simProfile]));
 
-    // Verify stored state
-    const retrieved = JSON.parse(localStorageMock.getItem(OFFLINE_QUEUE_KEY) || '[]');
+    const retrieved = JSON.parse(localStorageMock.getItem('loadwise_sims_v1') || '[]');
     expect(retrieved).toHaveLength(1);
-    expect(retrieved[0].id).toBe('cov_offline_test_001');
-    expect(retrieved[0].barangay_code).toBe('btg_batangas_city_alangilan');
-  });
-
-  it('flushes pending queue on app mount when online and drains storage', async () => {
-    // 1. Seed offline report
-    const queuedReports = [
-      {
-        id: 'rep_batangas_01',
-        barangay_code: 'btg_lipa_city_marawoy',
-        telco: 'Globe',
-        barangay: 'Marawoy',
-        city: 'Lipa City',
-        province: 'Batangas',
-        coordinates: [13.9419, 121.1631] as [number, number],
-        signalRating: 4,
-        networkType: '4G/LTE' as const,
-        reportedAt: new Date().toISOString(),
-        upvotes: 1
-      },
-      {
-        id: 'rep_batangas_02',
-        barangay_code: 'btg_nasugbu_wawa',
-        telco: 'DITO',
-        barangay: 'Wawa',
-        city: 'Nasugbu',
-        province: 'Batangas',
-        coordinates: [14.0733, 120.6311] as [number, number],
-        signalRating: 5,
-        networkType: '5G' as const,
-        reportedAt: new Date().toISOString(),
-        upvotes: 1
-      }
-    ];
-
-    localStorageMock.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queuedReports));
-    expect(JSON.parse(localStorageMock.getItem(OFFLINE_QUEUE_KEY) || '[]')).toHaveLength(2);
-
-    // 2. Simulate flush handler
-    const uploadedDocs: any[] = [];
-    const mockFlush = async () => {
-      const raw = localStorageMock.getItem(OFFLINE_QUEUE_KEY);
-      if (!raw) return 0;
-      const items = JSON.parse(raw);
-      if (!items.length) return 0;
-
-      for (const item of items) {
-        uploadedDocs.push(item);
-      }
-      localStorageMock.removeItem(OFFLINE_QUEUE_KEY);
-      return items.length;
-    };
-
-    const flushedCount = await mockFlush();
-
-    // 3. Verify outcomes
-    expect(flushedCount).toBe(2);
-    expect(uploadedDocs).toHaveLength(2);
-    expect(uploadedDocs[0].id).toBe('rep_batangas_01');
-    expect(uploadedDocs[1].id).toBe('rep_batangas_02');
-    expect(localStorageMock.getItem(OFFLINE_QUEUE_KEY)).toBeNull();
+    expect(retrieved[0].id).toBe('sim_offline_001');
+    expect(retrieved[0].remainingDataMb).toBe(5120);
   });
 });
+
 
 describe('Phone Authentication & OTP State Verification', () => {
   it('correctly formats and validates Philippines mobile numbers', () => {

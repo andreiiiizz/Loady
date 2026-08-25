@@ -1,11 +1,9 @@
-import { SimCard, CoverageReport, AuthUser } from '../types';
-import { INITIAL_COVERAGE_REPORTS } from './coverageData';
+import { SimCard, AuthUser } from '../types';
 import { applyAutoDecay } from './burnRateEngine';
 
 const STORAGE_KEYS = {
   SIMS: 'loadwise_sims_v1',
   ACTIVE_SIM_ID: 'loadwise_active_sim_id_v1',
-  COVERAGE_REPORTS: 'loadwise_coverage_reports_v1',
   USER_STATS: 'loadwise_user_stats_v1',
   THEME: 'loadwise_theme_v1',
   AUTH_USER: 'loadwise_auth_user_v1'
@@ -81,7 +79,6 @@ const DEFAULT_SIMS: SimCard[] = [
 ];
 
 export interface UserStats {
-  reportsSubmitted: number;
   badges: string[];
   points: number;
 }
@@ -158,38 +155,6 @@ export function setActiveSimId(id: string): void {
   }
 }
 
-export function loadCoverageReports(): CoverageReport[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.COVERAGE_REPORTS);
-    if (!raw) {
-      saveCoverageReports(INITIAL_COVERAGE_REPORTS);
-      return INITIAL_COVERAGE_REPORTS;
-    }
-    const parsed: CoverageReport[] = JSON.parse(raw);
-    if (parsed.length < INITIAL_COVERAGE_REPORTS.length) {
-      const merged = [...INITIAL_COVERAGE_REPORTS];
-      parsed.forEach(p => {
-        if (!merged.some(m => m.id === p.id)) {
-          merged.push(p);
-        }
-      });
-      saveCoverageReports(merged);
-      return merged;
-    }
-    return parsed;
-  } catch {
-    return INITIAL_COVERAGE_REPORTS;
-  }
-}
-
-export function saveCoverageReports(reports: CoverageReport[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.COVERAGE_REPORTS, JSON.stringify(reports));
-  } catch (err) {
-    console.error('Failed to save coverage reports:', err);
-  }
-}
-
 export function loadUserStats(): UserStats {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.USER_STATS);
@@ -198,8 +163,7 @@ export function loadUserStats(): UserStats {
     // fallback
   }
   return {
-    reportsSubmitted: 3,
-    badges: ['Barangay Scout', 'Signal Hunter'],
+    badges: ['Promo Optimizer', 'Pacing Pro'],
     points: 150
   };
 }
@@ -211,3 +175,4 @@ export function saveUserStats(stats: UserStats): void {
     console.error('Failed to save user stats:', err);
   }
 }
+

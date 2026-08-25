@@ -1,7 +1,7 @@
 import React from 'react';
-import { Gauge, Zap, MapPin, Navigation, Tag } from 'lucide-react';
+import { Gauge, Zap, Tag } from 'lucide-react';
 
-export type NavTab = 'dashboard' | 'autosync' | 'coverage' | 'trip' | 'promos';
+export type NavTab = 'dashboard' | 'autosync' | 'promos';
 
 interface BottomNavProps {
   currentTab: NavTab;
@@ -16,8 +16,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 }) => {
   const tabs = [
     { id: 'dashboard' as NavTab, label: 'Dashboard', icon: Gauge, badge: hasWarning ? '!' : null },
-    { id: 'trip' as NavTab, label: 'Trip Mode', icon: Navigation },
-    { id: 'coverage' as NavTab, label: 'Coverage', icon: MapPin },
     { id: 'autosync' as NavTab, label: 'Auto Sync', icon: Zap },
     { id: 'promos' as NavTab, label: 'Promos', icon: Tag }
   ];
@@ -64,3 +62,4 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     </nav>
   );
 };
+

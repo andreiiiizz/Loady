@@ -65,25 +65,6 @@ export interface Barangay {
   lng: number;
 }
 
-export interface CoverageReport {
-  id: string;
-  barangay_code?: string;
-  telco: TelcoProvider;
-  barangay: string;
-  city: string;
-  province: string;
-  coordinates: [number, number]; // [lat, lng]
-  signalRating: number; // 1 to 5
-  networkType: '5G' | '4G/LTE' | '3G' | '2G' | 'Deadzone';
-  speedMbps?: number;
-  notes?: string;
-  reporterName?: string;
-  reportedAt: string;
-  upvotes: number;
-  flagged?: boolean;
-  flag_count?: number;
-}
-
 export interface UserCheckin {
   id: string;
   user_id?: string;
@@ -106,26 +87,6 @@ export interface OutOfAreaLog {
   timestamp: string;
 }
 
-export interface RouteCheckpoint {
-  name: string;
-  coordinates: [number, number];
-  kmMark: number;
-  carrierStrength: Record<TelcoProvider, number>;
-  deadzoneCarriers: TelcoProvider[];
-  recommendation: string;
-}
-
-export interface TripRoute {
-  id: string;
-  name: string;
-  origin: string;
-  destination: string;
-  distanceKm: number;
-  durationEst: string;
-  path: [number, number][];
-  checkpoints: RouteCheckpoint[];
-  summaryAdvisory: string;
-}
 
 export interface ForecastResult {
   burnRateMbPerHour: number;

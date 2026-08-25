@@ -1,10 +1,42 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { CoverageReport, TelcoProvider } from '../types';
-import { loadCoverageReports, saveCoverageReports } from './storage';
+import { TelcoProvider } from '../types';
+
+export interface CoverageReport {
+  id: string;
+  barangay_code?: string;
+  telco: TelcoProvider;
+  barangay: string;
+  city: string;
+  province: string;
+  coordinates: [number, number];
+  signalRating: number;
+  networkType: string;
+  speedMbps?: number;
+  notes?: string;
+  reporterName?: string;
+  reportedAt: string;
+  upvotes: number;
+  flagged?: boolean;
+}
+
+export function loadCoverageReports(): CoverageReport[] {
+  try {
+    const raw = localStorage.getItem('loadwise_coverage_reports_v1');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [];
+}
+
+export function saveCoverageReports(reports: CoverageReport[]): void {
+  try {
+    localStorage.setItem('loadwise_coverage_reports_v1', JSON.stringify(reports));
+  } catch {}
+}
 
 const RAW_URL = import.meta.env.VITE_SUPABASE_URL || '';
 // Clean trailing /rest/v1 or trailing slashes to prevent 404 in supabase-js
 export const SUPABASE_URL = RAW_URL.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
+
 export const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
 export const isSupabaseConfigured = Boolean(

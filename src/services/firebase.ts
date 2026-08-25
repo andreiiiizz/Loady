@@ -2,23 +2,13 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import {
   getFirestore,
   Firestore,
-  collection,
   doc,
   setDoc,
-  getDocs,
-  query,
-  orderBy,
-  limit,
-  increment,
-  updateDoc,
-  onSnapshot,
   serverTimestamp
 } from 'firebase/firestore';
 import { getMessaging, Messaging, isSupported as isMessagingSupported } from 'firebase/messaging';
-import { CoverageReport, TelcoProvider, UserCheckin } from '../types';
-import { loadCoverageReports, saveCoverageReports } from './storage';
+import { UserCheckin } from '../types';
 import { getHashedDeviceFingerprint } from './privacy';
-export { findNearestBarangayLocal } from '../data/batangasBarangays';
 
 // Firebase Client Configuration
 const firebaseConfig = {
@@ -81,232 +71,7 @@ export async function getFirebaseMessaging(): Promise<Messaging | null> {
   return null;
 }
 
-// Convert Firestore document to Frontend CoverageReport interface
-function mapDocToCoverageReport(id: string, data: any): CoverageReport {
-  return {
-    id,
-    barangay_code: data.barangay_code || undefined,
-    telco: data.telco as TelcoProvider,
-    barangay: data.barangay || 'Unknown Area',
-    city: data.city || data.municipality || 'Metro Manila',
-    province: data.province || 'Luzon',
-    coordinates: [data.lat ?? 13.7565, data.lng ?? 121.0583],
-    signalRating: data.signal_rating ?? 5,
-    networkType: data.network_type || '5G',
-    speedMbps: data.speed_mbps || undefined,
-    notes: data.notes || undefined,
-    reporterName: data.user_id || undefined,
-    reportedAt: data.created_at || (data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()),
-    upvotes: data.upvotes ?? 1,
-    flagged: Boolean(data.flagged),
-    flag_count: data.flag_count ?? 0
-  };
-}
-
-// 1. Fetch Crowd Coverage Reports from Firestore (with local offline fallback)
-export async function fetchCoverageReports(): Promise<CoverageReport[]> {
-  if (db) {
-    try {
-      const reportsRef = collection(db, 'coverage_reports');
-      const q = query(reportsRef, orderBy('created_at', 'desc'), limit(150));
-      const snapshot = await getDocs(q);
-
-      if (!snapshot.empty) {
-        const fetched: CoverageReport[] = [];
-        snapshot.forEach(docSnap => {
-          fetched.push(mapDocToCoverageReport(docSnap.id, docSnap.data()));
-        });
-        saveCoverageReports(fetched);
-        return fetched;
-      }
-    } catch (err) {
-      console.warn('Firestore fetch error, falling back to local cache:', err);
-    }
-  }
-
-  return loadCoverageReports();
-}
-
-// Offline Reports Queue Key
-const OFFLINE_REPORTS_QUEUE_KEY = 'loady_coverage_reports_offline_queue_v1';
-
-export function loadOfflineReportsQueue(): CoverageReport[] {
-  try {
-    const raw = localStorage.getItem(OFFLINE_REPORTS_QUEUE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-export function saveOfflineReportsQueue(queue: CoverageReport[]): void {
-  try {
-    localStorage.setItem(OFFLINE_REPORTS_QUEUE_KEY, JSON.stringify(queue));
-  } catch {
-    // ignore
-  }
-}
-
-export function enqueueOfflineReport(report: CoverageReport): void {
-  const current = loadOfflineReportsQueue();
-  saveOfflineReportsQueue([report, ...current.filter(r => r.id !== report.id)]);
-}
-
-/**
- * Flushes all pending offline coverage reports to Firestore.
- * Triggered both on 'online' event and on app mount if already online.
- */
-export async function flushPendingOfflineReports(): Promise<{ synced: number; remaining: number }> {
-  if (!db || (typeof navigator !== 'undefined' && !navigator.onLine)) {
-    return { synced: 0, remaining: loadOfflineReportsQueue().length };
-  }
-
-  const queue = loadOfflineReportsQueue();
-  if (queue.length === 0) return { synced: 0, remaining: 0 };
-
-  const failedItems: CoverageReport[] = [];
-  let syncedCount = 0;
-  const hashedFingerprint = await getHashedDeviceFingerprint();
-
-  for (const report of queue) {
-    try {
-      const docRef = doc(db, 'coverage_reports', report.id);
-      await setDoc(docRef, {
-        barangay_code: report.barangay_code || null,
-        device_fingerprint: hashedFingerprint,
-        user_id: report.reporterName || null,
-        telco: report.telco,
-        barangay: report.barangay,
-        city: report.city,
-        province: report.province,
-        lat: report.coordinates[0],
-        lng: report.coordinates[1],
-        signal_rating: report.signalRating,
-        network_type: report.networkType,
-        speed_mbps: report.speedMbps || null,
-        notes: report.notes || null,
-        upvotes: report.upvotes || 1,
-        flagged: report.flagged || false,
-        flag_count: report.flag_count || 0,
-        created_at: report.reportedAt || new Date().toISOString(),
-        server_synced_at: serverTimestamp()
-      });
-      syncedCount++;
-    } catch {
-      failedItems.push(report);
-    }
-  }
-
-  saveOfflineReportsQueue(failedItems);
-  return { synced: syncedCount, remaining: failedItems.length };
-}
-
-// Automatic connection listener for dynamic offline->online transitions
-if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    flushPendingOfflineReports();
-  });
-}
-
-// 2. Submit New Coverage Report to Firestore with Offline Queue Fallback
-export async function submitCoverageReport(
-  report: CoverageReport
-): Promise<{ success: boolean; report?: CoverageReport; error?: string; isOfflineQueued?: boolean }> {
-  // Update local cache first
-  const existing = loadCoverageReports();
-  const updated = [report, ...existing.filter(r => r.id !== report.id)];
-  saveCoverageReports(updated);
-
-  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-
-  if (!isOnline || !db) {
-    enqueueOfflineReport(report);
-    return { success: true, report, isOfflineQueued: true };
-  }
-
-  try {
-    const hashedFingerprint = await getHashedDeviceFingerprint();
-    const docRef = doc(db, 'coverage_reports', report.id);
-    await setDoc(docRef, {
-      barangay_code: report.barangay_code || null,
-      device_fingerprint: hashedFingerprint,
-      user_id: report.reporterName || null,
-      telco: report.telco,
-      barangay: report.barangay,
-      city: report.city,
-      province: report.province,
-      lat: report.coordinates[0],
-      lng: report.coordinates[1],
-      signal_rating: report.signalRating,
-      network_type: report.networkType,
-      speed_mbps: report.speedMbps || null,
-      notes: report.notes || null,
-      upvotes: report.upvotes || 1,
-      flagged: report.flagged || false,
-      flag_count: report.flag_count || 0,
-      created_at: report.reportedAt || new Date().toISOString(),
-      server_synced_at: serverTimestamp()
-    });
-
-    return { success: true, report };
-  } catch (err: any) {
-    console.warn('Firestore submission failed, queuing offline:', err);
-    enqueueOfflineReport(report);
-    return { success: true, report, isOfflineQueued: true };
-  }
-}
-
-// 3. Upvote a Coverage Report in Firestore (Single-Increment Only)
-export async function upvoteCoverageReport(reportId: string): Promise<boolean> {
-  const reports = loadCoverageReports().map(r => {
-    if (r.id === reportId) {
-      return { ...r, upvotes: (r.upvotes || 1) + 1 };
-    }
-    return r;
-  });
-  saveCoverageReports(reports);
-
-  if (db) {
-    try {
-      const docRef = doc(db, 'coverage_reports', reportId);
-      await updateDoc(docRef, {
-        upvotes: increment(1)
-      });
-      return true;
-    } catch (err) {
-      console.warn('Firestore upvote error:', err);
-    }
-  }
-  return true;
-}
-
-// 4. Realtime Subscription to Live Crowd Reports in Firestore
-export function subscribeToCrowdReports(onNewReport: (report: CoverageReport) => void): () => void {
-  if (!db) return () => {};
-
-  try {
-    const reportsRef = collection(db, 'coverage_reports');
-    const q = query(reportsRef, orderBy('created_at', 'desc'), limit(50));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added') {
-          const report = mapDocToCoverageReport(change.doc.id, change.doc.data());
-          onNewReport(report);
-        }
-      });
-    }, (error) => {
-      console.warn('Firestore realtime subscription warning:', error);
-    });
-
-    return unsubscribe;
-  } catch {
-    return () => {};
-  }
-}
-
-// 5. Log Out-of-Area Telemetry (Expansion Demand Signal)
+// 1. Log Out-of-Area Telemetry (Expansion Demand Signal)
 export async function logOutOfAreaLookup(
   lat: number,
   lng: number,
@@ -333,7 +98,7 @@ export async function logOutOfAreaLookup(
   }
 }
 
-// 6. Log User Check-In
+// 2. Log User Check-In
 export async function logUserCheckin(
   checkin: Omit<UserCheckin, 'id' | 'device_fingerprint' | 'timestamp'>
 ): Promise<void> {
@@ -360,7 +125,7 @@ export async function logUserCheckin(
   }
 }
 
-// 7. Save FCM Push Subscription / Token (Keyed by Device Identifier)
+// 3. Save FCM Push Subscription / Token (Keyed by Device Identifier)
 export async function savePushSubscription(fcmToken: string, deviceId?: string): Promise<boolean> {
   if (!db || !fcmToken) return false;
 
@@ -387,7 +152,7 @@ export async function savePushSubscription(fcmToken: string, deviceId?: string):
   }
 }
 
-// 8. Sync User SIM Profile to Firestore (Keyed by Device Identifier)
+// 4. Sync User SIM Profile to Firestore (Keyed by Device Identifier)
 export async function syncSimProfileToFirestore(sim: any): Promise<void> {
   if (!db || typeof navigator === 'undefined' || !navigator.onLine) return;
 
@@ -414,3 +179,4 @@ export async function syncSimProfileToFirestore(sim: any): Promise<void> {
     console.warn('Failed to sync SIM profile to Firestore:', err);
   }
 }
+

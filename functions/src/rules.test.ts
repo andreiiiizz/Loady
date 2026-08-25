@@ -74,140 +74,46 @@ describe('Firestore Security Rules Test Suite (No-Auth Access Control)', () => {
     });
   });
 
-  // 2. COVERAGE REPORTS COLLECTION TESTS
-  describe('2. coverage_reports collection rules', () => {
-    beforeEach(async () => {
-      // Seed a valid barangay to test foreign key verification
+  // 2. COVERAGE REPORTS COLLECTION TESTS (LOCKED DOWN & DEPRECATED)
+  describe('2. coverage_reports collection rules (locked down)', () => {
+    it('REJECTS client read on coverage_reports', async () => {
       await testEnv.withSecurityRulesDisabled(async (context) => {
         const adminDb = context.firestore();
-        await adminDb.collection('barangays').doc('btg_batangas_city_alangilan').set({
-          barangay_code: 'btg_batangas_city_alangilan',
-          name: 'Alangilan',
-          municipality: 'Batangas City',
-          province: 'Batangas'
-        });
-      });
-    });
-
-    it('REJECTS create with non-existent barangay_code foreign key', async () => {
-      const clientDb = testEnv.unauthenticatedContext().firestore();
-      const docRef = clientDb.collection('coverage_reports').doc('rep_invalid_brgy');
-      await assertFails(
-        docRef.set({
-          barangay_code: 'non_existent_fake_barangay_code_999',
-          telco: 'Smart',
-          network_type: '5G',
-          signal_rating: 5,
-          lat: 13.78,
-          lng: 121.07,
-          barangay: 'Fake',
-          city: 'Batangas City',
-          province: 'Batangas',
-          upvotes: 1,
-          flagged: false,
-          flag_count: 0
-        })
-      );
-    });
-
-    it('REJECTS create with unexpected / arbitrary extra fields', async () => {
-      const clientDb = testEnv.unauthenticatedContext().firestore();
-      const docRef = clientDb.collection('coverage_reports').doc('rep_extra_field');
-      await assertFails(
-        docRef.set({
+        await adminDb.collection('coverage_reports').doc('rep_legacy_1').set({
           barangay_code: 'btg_batangas_city_alangilan',
           telco: 'Smart',
-          network_type: '5G',
-          signal_rating: 5,
-          lat: 13.78,
-          lng: 121.07,
-          barangay: 'Alangilan',
-          city: 'Batangas City',
-          province: 'Batangas',
-          upvotes: 1,
-          flagged: false,
-          flag_count: 0,
-          injected_admin_flag: true // ILLEGAL ARBITRARY FIELD
-        })
-      );
-    });
-
-    it('SUCCEEDS on valid unauthenticated create with existing barangay_code', async () => {
-      const clientDb = testEnv.unauthenticatedContext().firestore();
-      const docRef = clientDb.collection('coverage_reports').doc('rep_valid_1');
-      await assertSucceeds(
-        docRef.set({
-          barangay_code: 'btg_batangas_city_alangilan',
-          telco: 'Smart',
-          network_type: '5G',
-          signal_rating: 5,
-          lat: 13.78,
-          lng: 121.07,
-          barangay: 'Alangilan',
-          city: 'Batangas City',
-          province: 'Batangas',
-          upvotes: 1,
-          flagged: false,
-          flag_count: 0
-        })
-      );
-    });
-
-    it('REJECTS update modifying upvotes by more than +1', async () => {
-      await testEnv.withSecurityRulesDisabled(async (context) => {
-        const adminDb = context.firestore();
-        await adminDb.collection('coverage_reports').doc('rep_upvote_test').set({
-          barangay_code: 'btg_batangas_city_alangilan',
-          telco: 'Smart',
-          network_type: '5G',
-          signal_rating: 5,
-          lat: 13.78,
-          lng: 121.07,
-          barangay: 'Alangilan',
-          city: 'Batangas City',
-          province: 'Batangas',
-          upvotes: 1,
-          flagged: false,
-          flag_count: 0
+          signal_rating: 5
         });
       });
 
       const clientDb = testEnv.unauthenticatedContext().firestore();
-      const docRef = clientDb.collection('coverage_reports').doc('rep_upvote_test');
-      // Attempting to jump upvotes directly from 1 to 10
+      const docRef = clientDb.collection('coverage_reports').doc('rep_legacy_1');
+      await assertFails(docRef.get());
+    });
+
+    it('REJECTS client create on coverage_reports', async () => {
+      const clientDb = testEnv.unauthenticatedContext().firestore();
+      const docRef = clientDb.collection('coverage_reports').doc('rep_new');
       await assertFails(
-        docRef.update({
-          upvotes: 10
+        docRef.set({
+          barangay_code: 'btg_batangas_city_alangilan',
+          telco: 'Smart',
+          signal_rating: 5
         })
       );
     });
 
-    it('SUCCEEDS on valid single-increment upvote (1 -> 2)', async () => {
+    it('REJECTS client update/upvote on coverage_reports', async () => {
       await testEnv.withSecurityRulesDisabled(async (context) => {
         const adminDb = context.firestore();
-        await adminDb.collection('coverage_reports').doc('rep_upvote_test_2').set({
-          barangay_code: 'btg_batangas_city_alangilan',
-          telco: 'Smart',
-          network_type: '5G',
-          signal_rating: 5,
-          lat: 13.78,
-          lng: 121.07,
-          barangay: 'Alangilan',
-          city: 'Batangas City',
-          province: 'Batangas',
-          upvotes: 1,
-          flagged: false,
-          flag_count: 0
+        await adminDb.collection('coverage_reports').doc('rep_upvote_locked').set({
+          upvotes: 1
         });
       });
 
       const clientDb = testEnv.unauthenticatedContext().firestore();
-      const docRef = clientDb.collection('coverage_reports').doc('rep_upvote_test_2');
-      await assertSucceeds(
-        docRef.update({
-          upvotes: 2
-        })
-      );
+      const docRef = clientDb.collection('coverage_reports').doc('rep_upvote_locked');
+      await assertFails(docRef.update({ upvotes: 2 }));
     });
   });
 

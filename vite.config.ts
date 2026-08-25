@@ -22,7 +22,7 @@ export default defineConfig({
       manifest: {
         name: 'Loady - Philippine Prepaid Companion',
         short_name: 'Loady',
-        description: 'Prepaid load burn-rate forecaster and crowd-sourced signal coverage for Globe, Smart, DITO, TM, TNT, and GOMO.',
+        description: 'Prepaid load burn-rate forecaster, consumption pacing, and promo recommendations for Globe, Smart, DITO, TM, TNT, and GOMO.',
         theme_color: '#10131c',
         background_color: '#10131c',
         display: 'standalone',
@@ -45,10 +45,10 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
-          'vendor-leaflet': ['leaflet'],
           'vendor-icons': ['lucide-react']
         }
       }
     }
   }
 });
+

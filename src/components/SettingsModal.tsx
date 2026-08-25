@@ -319,10 +319,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
               {[
-                { name: 'Barangay Scout', desc: 'Submitted 3+ verified coverage reports', unlocked: true, icon: '📍' },
-                { name: 'Signal Hunter', desc: 'Reported 5G speeds over 100 Mbps', unlocked: true, icon: '⚡' },
-                { name: 'Corridor Pioneer', desc: 'Logged deadzone along provincial expressway', unlocked: false, icon: '🛣️' },
-                { name: 'Smart Optimizer', desc: 'Switched promo based on burn-rate recommendation', unlocked: false, icon: '🏆' }
+                { name: 'Promo Optimizer', desc: 'Calibrated prepaid promo pacing with accurate check-ins', unlocked: true, icon: '⚡' },
+                { name: 'Pacing Pro', desc: 'Maintained optimal burn-rate within daily data quota', unlocked: true, icon: '🎯' },
+                { name: 'Wi-Fi Shield Master', desc: 'Preserved cellular balance by enabling Wi-Fi Shield', unlocked: true, icon: '🛡️' },
+                { name: 'Smart Saver', desc: 'Switched to a cost-efficient Philippine telco promo', unlocked: false, icon: '🏆' }
               ].map((badge, idx) => (
                 <div
                   key={idx}
