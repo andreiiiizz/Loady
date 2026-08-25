@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense } from 'react';
-import { SimCard, AuthUser, PromoItem } from './types';
+import { SimCard, AuthUser } from './types';
 import {
   loadSims,
   saveSims,
@@ -173,27 +173,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Apply Selected Promo to Active SIM
-  const handleSelectPromoForSim = (promo: PromoItem) => {
-    const updated = sims.map(s => {
-      if (s.id === activeSim.id) {
-        return {
-          ...s,
-          activePromo: promo.name,
-          totalDataMb: promo.dataAllowanceMb,
-          remainingDataMb: promo.dataAllowanceMb,
-          expiryDate: promo.isNoExpiry ? 'NO_EXPIRY' : new Date(Date.now() + promo.validityDays * 24 * 60 * 60 * 1000).toISOString(),
-          isNoExpiry: promo.isNoExpiry,
-          lastSyncAt: new Date().toISOString()
-        };
-      }
-      return s;
-    });
-    setSims(updated);
-    saveSims(updated);
-    setCurrentTab('dashboard');
-  };
-
   // If incoming Web Share Target is detected, ensure active tab is Dashboard
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -253,7 +232,8 @@ export const App: React.FC = () => {
           <Suspense fallback={<TabLoadingFallback />}>
             <PromoDirectory
               activeSim={activeSim}
-              onSelectPromoForSim={handleSelectPromoForSim}
+              sims={sims}
+              onUpdateSim={handleUpdateActiveSim}
             />
           </Suspense>
         )}

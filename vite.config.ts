@@ -1,12 +1,16 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-
 export default defineConfig({
   server: {
     host: true, // Bind to 0.0.0.0 for phone/mobile access over Wi-Fi
-    port: 5173
+    port: 5173,
+    watch: {
+      ignored: ['**/.chrome-test-profile/**', '**/firestore-debug.log', '**/firebase-debug.log']
+    }
   },
+
+
   preview: {
     host: true,
     port: 4173
