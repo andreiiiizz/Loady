@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { PHILIPPINE_PROMOS, recommendPromos } from '../services/promoData';
+import { PHILIPPINE_PROMOS, recommendPromos, DATASET_LAST_VERIFIED_DATE } from '../services/promoData';
 import { PromoItem, SimCard } from '../types';
 import { calculateForecast } from '../services/burnRateEngine';
-import { Search, Sparkles, Check, Copy, ExternalLink } from 'lucide-react';
+import { Search, Sparkles, Check, Copy, ExternalLink, Info, ShieldCheck } from 'lucide-react';
 
 interface PromoDirectoryProps {
   activeSim: SimCard;
@@ -35,14 +35,33 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
   const forecast = calculateForecast(selectedSim);
   const recommendation = recommendPromos(forecast.burnRateGbPerDay, selectedSim.telco);
 
-  // Filter promos strictly matching the selected SIM's telco
+  // Filter promos strictly matching the selected SIM's telco (with Sun migrated to Smart/TNT)
   const filteredPromos = PHILIPPINE_PROMOS.filter(promo => {
-    const matchesTelco = promo.telco.toLowerCase() === selectedSim.telco.toLowerCase();
-    const matchesCategory = selectedCategory === 'ALL' || promo.category === selectedCategory;
-    const matchesSearch = searchQuery === '' ||
-      promo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      promo.telco.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (promo.freebieDetails && promo.freebieDetails.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesTelco = selectedSim.telco === 'Sun'
+      ? (promo.telco === 'Smart' || promo.telco === 'TNT')
+      : promo.telco.toLowerCase() === selectedSim.telco.toLowerCase();
+
+    let matchesCategory = true;
+    if (selectedCategory === 'popular') {
+      matchesCategory = promo.category === 'popular';
+    } else if (selectedCategory === 'no_expiry') {
+      matchesCategory = promo.isNoExpiry;
+    } else if (selectedCategory === 'budget') {
+      matchesCategory = promo.pricePhp <= 50;
+    } else if (selectedCategory === 'heavy_data') {
+      matchesCategory = promo.dataAllowanceMb >= 12 * 1024 || promo.validityDays >= 15;
+    } else if (selectedCategory === 'unli') {
+      matchesCategory = promo.category === 'unli' || promo.dataAllowanceMb >= 500 * 1024;
+    }
+
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch = q === '' ||
+      promo.name.toLowerCase().includes(q) ||
+      promo.telco.toLowerCase().includes(q) ||
+      (promo.inclusions && promo.inclusions.toLowerCase().includes(q)) ||
+      (promo.freebieDetails && promo.freebieDetails.toLowerCase().includes(q)) ||
+      (promo.smsKeyword && promo.smsKeyword.toLowerCase().includes(q)) ||
+      promo.highlights.some(h => h.toLowerCase().includes(q));
 
     return matchesTelco && matchesCategory && matchesSearch;
   });
@@ -168,6 +187,23 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
         </div>
       )}
 
+      {/* Sun Cellular Migration Informational Notice */}
+      {selectedSim.telco === 'Sun' && (
+        <div className="glass-panel" style={{
+          padding: '0.85rem 1rem',
+          background: 'rgba(251, 191, 36, 0.08)',
+          border: '1px solid rgba(251, 191, 36, 0.25)',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '0.65rem'
+        }}>
+          <Info size={18} color="#fbbf24" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <div style={{ fontSize: '0.78rem', color: 'var(--on-surface)', lineHeight: 1.45 }}>
+            <strong style={{ color: '#fbbf24' }}>Sun Cellular Migration Notice:</strong> Sun Cellular has been fully integrated into Smart Prepaid & TNT. Sun SIM cards register using Smart & TNT promo packages via <code style={{ fontFamily: 'var(--font-mono)', background: 'rgba(0,0,0,0.3)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>*123#</code> or the Smart App.
+          </div>
+        </div>
+      )}
+
       {/* Smart Switch Optimizer Card */}
       <div className="glass-panel glow-active" style={{
         padding: '1.5rem',
@@ -206,7 +242,7 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
                 </span>
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)', marginTop: '0.25rem', fontFamily: 'var(--font-mono)' }}>
-                {(recommendation.bestOverall.dataAllowanceMb / 1024).toFixed(0)} GB • ₱{recommendation.bestOverall.pricePhp} • {recommendation.bestOverall.validityDays} Days
+                {recommendation.bestOverall.isNoExpiry ? 'No Expiry' : `${recommendation.bestOverall.validityDays} Days`} • {(recommendation.bestOverall.dataAllowanceMb / 1024).toFixed(0)} GB • ₱{recommendation.bestOverall.pricePhp}
               </div>
             </div>
 
@@ -248,15 +284,36 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
         </div>
       </div>
 
-      {/* Search & Category Filters */}
+      {/* Search, Category Filters & Freshness Banner */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {/* Dataset Verification Header Indicator */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0.45rem 0.75rem',
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid var(--glass-border)',
+          borderRadius: 'var(--radius-md)',
+          fontSize: '0.7rem',
+          color: 'var(--on-surface-variant)'
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <ShieldCheck size={13} color="#4ade80" />
+            Official Telco Catalog Snapshot
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--on-surface)' }}>
+            Verified: {DATASET_LAST_VERIFIED_DATE}
+          </span>
+        </div>
+
         <div style={{ position: 'relative' }}>
           <Search size={17} color="var(--on-surface-variant)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={`Search ${selectedSim.telco} promos (e.g. Magic Data, Unli TikTok)...`}
+            placeholder={`Search ${selectedSim.telco === 'Sun' ? 'Smart / TNT' : selectedSim.telco} promos (e.g. Magic Data, Level Up, Go+)...`}
             style={{
               width: '100%',
               background: 'var(--surface-container-low)',
@@ -276,7 +333,7 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
             { id: 'ALL', label: 'All Types' },
             { id: 'popular', label: '⭐ Popular' },
             { id: 'no_expiry', label: '♾️ No Expiry' },
-            { id: 'budget', label: '🪙 Budget (₱30-₱50)' },
+            { id: 'budget', label: '🪙 Budget (≤₱50)' },
             { id: 'heavy_data', label: '🚀 Heavy Data' },
             { id: 'unli', label: '⚡ Unlimited' }
           ].map(cat => (
@@ -290,7 +347,9 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
                 border: selectedCategory === cat.id ? '1px solid var(--electric-purple)' : '1px solid transparent',
                 fontSize: '0.72rem',
                 padding: '0.3rem 0.65rem',
-                borderRadius: 'var(--radius-full)'
+                borderRadius: 'var(--radius-full)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
               }}
             >
               {cat.label}
@@ -302,7 +361,7 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
       {/* Promos Grid */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         <div className="font-label-caps" style={{ color: 'var(--on-surface-variant)' }}>
-          SHOWING {filteredPromos.length} {selectedSim.telco.toUpperCase()} PROMOS
+          SHOWING {filteredPromos.length} {selectedSim.telco === 'Sun' ? 'SMART / TNT' : selectedSim.telco.toUpperCase()} PROMOS
         </div>
 
         {filteredPromos.map(promo => {
@@ -319,9 +378,10 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
                 gap: '0.75rem'
               }}
             >
+              {/* Header row: Telco, Promo Name, Price & Allowance */}
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                     <span className={`badge badge-${promo.telco.toLowerCase()}`}>
                       {promo.telco}
                     </span>
@@ -339,9 +399,66 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
                     ₱{promo.pricePhp}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)', fontFamily: 'var(--font-mono)' }}>
-                    {promo.dataAllowanceMb >= 100 * 1024 ? 'UNLIMITED' : `${(promo.dataAllowanceMb / 1024).toFixed(1)} GB`}
+                    {promo.dataAllowanceMb >= 500 * 1024 ? 'UNLIMITED' : `${(promo.dataAllowanceMb / 1024).toFixed(1)} GB`}
                   </div>
                 </div>
+              </div>
+
+              {/* Confidence & Verified Date Badge row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {promo.confidence === 'high' ? (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      fontSize: '0.65rem',
+                      fontWeight: 600,
+                      color: '#4ade80',
+                      background: 'rgba(74, 222, 128, 0.08)',
+                      border: '1px solid rgba(74, 222, 128, 0.25)',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: 'var(--radius-full)'
+                    }}
+                    title={`Verified against live official telco store listings on ${promo.lastVerifiedDate}`}
+                  >
+                    <Check size={11} color="#4ade80" /> Official Store Verified • {promo.lastVerifiedDate}
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      fontSize: '0.65rem',
+                      fontWeight: 600,
+                      color: '#fbbf24',
+                      background: 'rgba(251, 191, 36, 0.08)',
+                      border: '1px solid rgba(251, 191, 36, 0.25)',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: 'var(--radius-full)',
+                      cursor: 'help'
+                    }}
+                    title="App-exclusive / targeted menu promo (*123# or official telco app). Check menu before purchasing."
+                  >
+                    <Info size={11} color="#fbbf24" /> App / Targeted Promo • {promo.lastVerifiedDate}
+                  </span>
+                )}
+
+                {promo.inclusions && (
+                  <span style={{
+                    display: 'inline-block',
+                    fontSize: '0.65rem',
+                    fontWeight: 600,
+                    color: 'var(--on-surface-variant)',
+                    background: 'var(--surface-container-high)',
+                    padding: '0.15rem 0.45rem',
+                    borderRadius: 'var(--radius-full)',
+                    border: '1px solid var(--glass-border)'
+                  }}>
+                    ⚡ {promo.inclusions}
+                  </span>
+                )}
               </div>
 
               {promo.freebieDetails && (
@@ -470,7 +587,7 @@ export const PromoDirectory: React.FC<PromoDirectoryProps> = ({
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--on-surface-variant)' }}>Promo Quota:</span>
                 <span style={{ color: 'var(--neon-lime)', fontWeight: 600 }}>
-                  {calibratingPromo.dataAllowanceMb >= 100 * 1024 ? 'Unlimited' : `${(calibratingPromo.dataAllowanceMb / 1024).toFixed(1)} GB`}
+                  {calibratingPromo.dataAllowanceMb >= 500 * 1024 ? 'Unlimited' : `${(calibratingPromo.dataAllowanceMb / 1024).toFixed(1)} GB`}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>

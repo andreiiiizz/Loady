@@ -1,4 +1,4 @@
-export type TelcoProvider = 'Globe' | 'Smart' | 'DITO' | 'TM' | 'TNT' | 'GOMO';
+export type TelcoProvider = 'Globe' | 'Smart' | 'DITO' | 'TM' | 'TNT' | 'GOMO' | 'Sun';
 
 export type UsageProfile = 'light' | 'moderate' | 'heavy' | 'streamer';
 
@@ -48,12 +48,15 @@ export interface PromoItem {
   validityDays: number; // 0 for no expiry
   isNoExpiry: boolean;
   freebieDetails?: string;
+  inclusions?: string;
   ussdCode?: string;
   smsKeyword?: string;
   smsSendTo?: string;
   category: 'popular' | 'budget' | 'heavy_data' | 'no_expiry' | 'unli';
   highlights: string[];
   costPerGb: number;
+  lastVerifiedDate: string;
+  confidence: 'high' | 'medium';
 }
 
 export interface Barangay {

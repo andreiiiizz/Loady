@@ -187,6 +187,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <option value="GOMO">GOMO</option>
                       <option value="TM">TM</option>
                       <option value="TNT">TNT</option>
+                      <option value="Sun">Sun Cellular</option>
                     </select>
                   </div>
 
